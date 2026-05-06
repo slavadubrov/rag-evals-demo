@@ -1,0 +1,37 @@
+__pycache__/
+*.py[cod]
+*.so
+.Python
+.venv/
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build
+dist/
+build/
+*.egg-info/
+
+# Eval artefacts
+report.md
+report.json
+data/cache/
+data/golden/*.jsonl
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Qdrant local volume
+qdrant_storage/
