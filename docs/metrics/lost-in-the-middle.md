@@ -1,20 +1,20 @@
 # Lost-in-the-middle
 
-> Position-stratified eval — when the gold chunk is in the *middle* of context, models often miss it. The U-shaped degradation Liu et al. (TACL 2023) documented is real and persists in 2026 models.
+> Position-stratified eval. When the gold chunk sits in the *middle* of the context, models often miss it. The U-shaped degradation that Liu et al. (TACL 2023) first documented is real, and it persists in 2026 models.
 
 ## What it measures
 
 For a query whose gold chunk is known, build the context three different ways:
 
-- **first** — gold chunk at position 0, distractors after.
-- **middle** — gold chunk in the middle of the distractors.
-- **last** — distractors first, gold chunk at the end.
+- **first.** Gold chunk at position 0, distractors after.
+- **middle.** Gold chunk in the middle of the distractors.
+- **last.** Distractors first, gold chunk at the end.
 
 Generate an answer from each arrangement; score correctness per position. A model with no position bias should score equally across all three. In practice, middle is meaningfully worse.
 
 ## Why it matters
 
-This is one of the most common "good retrieval, bad answer" failure modes. Retrieval can put the gold chunk in your top-5, but if it lands at position 3 in a 5-chunk context the model sometimes misses it. The mitigation in production is **rerank then reorder**: place the highest-scored chunk first or last, not by retrieval rank.
+This is one of the most common "good retrieval, bad answer" failure modes. Retrieval can put the gold chunk in your top-5, but if it lands at position 3 in a 5-chunk context the model sometimes misses it. The standard mitigation in production is **rerank then reorder**: place the highest-scored chunk first or last in the prompt, not by retrieval rank.
 
 ## Implementation
 
@@ -32,7 +32,7 @@ def position_stratified_eval(
 ) -> PositionEvalResult
 ```
 
-Pass an `is_correct` callable so the harness stays domain-agnostic — exact match for short answers, embedding cosine threshold for open-ended, LLM judge if you need it.
+Pass an `is_correct` callable so the harness stays domain-agnostic: exact match for short answers, embedding cosine threshold for open-ended ones, an LLM judge if you need it.
 
 ## How to run
 

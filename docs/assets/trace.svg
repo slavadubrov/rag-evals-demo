@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 760" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+    </marker>
+    <style>
+      .box { fill: #fff; stroke: #334155; stroke-width: 1.2; rx: 6; ry: 6; }
+      .lbl { fill: #0f172a; font-weight: 500; }
+      .sub { fill: #475569; font-size: 11px; }
+      .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+      .group { fill: #f8fafc; stroke: #94a3b8; stroke-width: 1; stroke-dasharray: 4 3; rx: 8; ry: 8; }
+      .group-title { fill: #334155; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+      .arrow { stroke: #334155; stroke-width: 1.4; fill: none; }
+      .accent { fill: #fef3c7; stroke: #b45309; stroke-width: 1.4; }
+    </style>
+  </defs>
+
+  <!-- entry -->
+  <g>
+    <rect class="box" x="220" y="20" width="280" height="56"/>
+    <text class="lbl mono" x="360" y="44" text-anchor="middle">make eval</text>
+    <text class="sub mono" x="360" y="62" text-anchor="middle">→ runner.run_suite()</text>
+  </g>
+  <path class="arrow" d="M360 76 L360 110" marker-end="url(#arr)"/>
+
+  <!-- loop label -->
+  <g>
+    <rect class="box" x="220" y="110" width="280" height="50"/>
+    <text class="lbl mono" x="360" y="134" text-anchor="middle">for row in golden/retrieval.jsonl</text>
+  </g>
+  <path class="arrow" d="M360 160 L360 190" marker-end="url(#arr)"/>
+
+  <!-- HybridRetriever group -->
+  <g>
+    <rect class="group" x="60" y="190" width="600" height="190"/>
+    <text class="group-title" x="80" y="212">HybridRetriever</text>
+
+    <g>
+      <rect class="box" x="100" y="230" width="240" height="50"/>
+      <text class="lbl mono" x="220" y="251" text-anchor="middle">dense</text>
+      <text class="sub mono" x="220" y="268" text-anchor="middle">query → bge-small-en-v1.5 → Qdrant</text>
+    </g>
+    <g>
+      <rect class="box" x="380" y="230" width="240" height="50"/>
+      <text class="lbl mono" x="500" y="251" text-anchor="middle">sparse</text>
+      <text class="sub mono" x="500" y="268" text-anchor="middle">query → BM25 → Qdrant</text>
+    </g>
+    <g>
+      <rect class="box" x="220" y="310" width="280" height="50"/>
+      <text class="lbl mono" x="360" y="331" text-anchor="middle">fuse</text>
+      <text class="sub mono" x="360" y="348" text-anchor="middle">reciprocal_rank_fusion(k=60)</text>
+    </g>
+
+    <path class="arrow" d="M220 280 L220 295 L290 295 L290 310" marker-end="url(#arr)"/>
+    <path class="arrow" d="M500 280 L500 295 L430 295 L430 310" marker-end="url(#arr)"/>
+  </g>
+  <path class="arrow" d="M360 380 L360 410" marker-end="url(#arr)"/>
+
+  <!-- evaluation modules -->
+  <g>
+    <rect class="group" x="60" y="410" width="600" height="180"/>
+    <text class="group-title" x="80" y="432">evaluation modules</text>
+
+    <g>
+      <rect class="box" x="80" y="450" width="280" height="44"/>
+      <text class="lbl mono" x="220" y="478" text-anchor="middle">retrieval.evaluate_runs(runs, gold)</text>
+    </g>
+    <g>
+      <rect class="box" x="380" y="450" width="260" height="44"/>
+      <text class="lbl mono" x="510" y="478" text-anchor="middle">latency.summarise(tracers)</text>
+    </g>
+    <g>
+      <rect class="box accent" x="180" y="510" width="380" height="44"/>
+      <text class="lbl mono" x="370" y="538" text-anchor="middle">filter_exclusion.rate_against_survivors(...)</text>
+    </g>
+  </g>
+  <path class="arrow" d="M360 590 L360 620" marker-end="url(#arr)"/>
+
+  <!-- gates -->
+  <g>
+    <rect class="box" x="160" y="620" width="400" height="50"/>
+    <text class="lbl mono" x="360" y="640" text-anchor="middle">runner._check_gates</text>
+    <text class="sub mono" x="360" y="657" text-anchor="middle">compare against THRESHOLD_* in .env</text>
+  </g>
+  <path class="arrow" d="M360 670 L360 700" marker-end="url(#arr)"/>
+
+  <!-- output -->
+  <g>
+    <rect class="box" x="160" y="700" width="400" height="50"/>
+    <text class="lbl mono" x="360" y="720" text-anchor="middle">report.md / report.json</text>
+    <text class="sub mono" x="360" y="737" text-anchor="middle">exit non-zero if any gate fails</text>
+  </g>
+</svg>

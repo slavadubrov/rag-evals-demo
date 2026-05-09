@@ -1,6 +1,6 @@
 # rag-evals
 
-Companion demo to *Evaluating RAG: Metrics for Every Stage of a Production RAG System*. A runnable harness for the metrics the article discusses, on a real corpus.
+A runnable companion to *Evaluating RAG: Metrics for Every Stage of a Production RAG System*. Every metric the article discusses, wired up against a real corpus, ready to run on a laptop.
 
 ## Quickstart
 
@@ -13,26 +13,23 @@ make benchmark             # chunking × embedding × LLM sweep -> report/benchm
 make nb                    # execute every notebook in-place (mock backend by default)
 ```
 
-The index lives in embedded Qdrant (a local file at `./qdrant_storage`) — no
-Docker, no daemon. To run against a Qdrant server instead, set
-`QDRANT_URL=http://localhost:6333` in `.env` and point it at your own
-deployment.
+The index lives in embedded Qdrant (a local file at `./qdrant_storage`). No Docker, no daemon. To run against a Qdrant server instead, set `QDRANT_URL=http://localhost:6333` in `.env` and point it at your own deployment.
 
 ## Architecture
 
-Three layers, mirroring the article's evaluation discipline:
+Three layers, one per failure class the article calls out:
 
-- **Offline** — corpus, chunking, embedding, indexing into Qdrant (one collection, named dense + sparse vectors).
-- **Online** — dense + sparse retrieval, hybrid fusion via RRF, optional cross-encoder reranking.
-- **Post-generation** — faithfulness, lost-in-the-middle, LLM-as-judge with bias mitigation, latency telemetry.
+- **Offline.** Corpus, chunking, embedding, and indexing into Qdrant (one collection with named dense + sparse vectors).
+- **Online.** Dense + sparse retrieval, RRF fusion, and an optional cross-encoder rerank.
+- **Post-generation.** Faithfulness, lost-in-the-middle, LLM-as-judge with bias mitigation, latency telemetry.
+
+![Architecture overview](docs/assets/architecture.svg)
 
 See [`docs/architecture.md`](docs/architecture.md) for the full request/response trace.
 
-```
-query -> [retrieve dense] + [retrieve sparse] -> RRF fuse -> rerank -> generate -> evaluate
-                                                                          |
-                                              filter false-exclusion <----+----> faithfulness
-```
+The request path and the evaluators that hang off it:
+
+![Pipeline](docs/assets/pipeline.svg)
 
 ## What's evaluated
 
@@ -47,7 +44,7 @@ query -> [retrieve dense] + [retrieve sparse] -> RRF fuse -> rerank -> generate 
 | LLM-as-judge w/ bias mitigation   | `evaluation/llm_judge.py`              | 07       | [llm-as-judge](docs/metrics/llm-as-judge.md)          |
 | Latency p50/p95/p99               | `evaluation/latency.py`                | 08       | [latency-and-cost](docs/metrics/latency-and-cost.md)  |
 
-The metric coverage is intentional: every section of the article that *can* be demoed on a single corpus has a destination here. Out of scope (called out so it's explicit): OCR / CER / WER, entity-linking F1, ontology hierarchical metrics, production drift, A/B testing.
+Every section of the article that fits on a single corpus has a destination here. The metrics that don't fit — OCR / CER / WER, entity-linking F1, hierarchical ontology metrics, production drift, A/B testing — are explicitly out of scope.
 
 ## Notebooks tour
 
@@ -68,9 +65,9 @@ Notebooks run offline against `MockBackend` if you don't set any LLM API keys (`
 
 `make benchmark` runs three sweeps and writes the results to `report/benchmark.md` (human-readable) and `report/benchmark.json` (machine-readable):
 
-- **Chunking sweep** — embedding fixed (`bge-small-en-v1.5`), chunking varied (`recursive` at 128/256/512 tokens + `structural`). Compares retrieval metrics (Recall@10, MRR, nDCG@10, MAP).
-- **Embedding sweep** — chunking fixed (`recursive 256/32`), embedding varied (`bge-small-en-v1.5`, `all-MiniLM-L6-v2`, `bge-base-en-v1.5`). Same retrieval metrics; lets you see the dim/quality trade-off.
-- **LLM sweep** — retriever fixed (the default scifact index), generator varies across `gpt-5-mini`, `claude-haiku-4-5`, and `gemini-2.5-flash`. Reports avg & p95 latency, faithfulness (heuristic + cross-family LLM judge), and a pairwise A/B head-to-head where the third model is the judge.
+- **Chunking sweep.** Embedding fixed (`bge-small-en-v1.5`), chunking varied (`recursive` at 128/256/512 tokens + `structural`). Compares retrieval metrics (Recall@10, MRR, nDCG@10, MAP).
+- **Embedding sweep.** Chunking fixed (`recursive 256/32`), embedding varied (`bge-small-en-v1.5`, `all-MiniLM-L6-v2`, `bge-base-en-v1.5`). Same retrieval metrics; lets you see the dim/quality trade-off.
+- **LLM sweep.** Retriever fixed (the default scifact index), generator varies across `gpt-5-mini`, `claude-haiku-4-5`, and `gemini-2.5-flash`. Reports avg & p95 latency, faithfulness (heuristic + cross-family LLM judge), and a pairwise A/B head-to-head where the third model is the judge.
 
 Each variant index lives in its own subdirectory under `qdrant_bench/`, so the sweeps don't perturb the default scifact index. Knobs:
 
@@ -82,7 +79,7 @@ uv run python -m rag_evals.scripts.benchmark \
 uv run python -m rag_evals.scripts.benchmark --skip-llm
 ```
 
-Notebook `09_benchmark.ipynb` reads `report/benchmark.json` and plots the sweeps — re-run the script to refresh the JSON, then re-execute the notebook.
+Notebook `09_benchmark.ipynb` reads `report/benchmark.json` and plots the sweeps. Re-run the script to refresh the JSON, then re-execute the notebook.
 
 ## Reproducing the article numbers
 
@@ -101,14 +98,14 @@ uv run pytest tests/test_rrf.py -v
 
 All knobs live in `.env` (read via Pydantic Settings).
 
-- `RAG_EVALS_DEFAULT_MODEL` — generator + claim extractor (e.g. `gpt-5-mini`).
-- `RAG_EVALS_JUDGE_MODEL` — second model for cross-family judging (e.g. `claude-haiku-4-5`).
-- `RAG_EVALS_THIRD_JUDGE` — third leg for self-preference measurement (e.g. `gemini/gemini-2.5-flash`).
-- `RAG_EVALS_BACKEND` — `auto` | `live` | `mock`. `auto` falls back to `mock` when API keys are missing.
-- `EMBEDDING_MODEL`, `RERANKER_MODEL`, `NLI_MODEL` — Hugging Face IDs.
-- `THRESHOLD_*` — pass/fail gates used by `make eval` to exit non-zero on regression.
+- `RAG_EVALS_DEFAULT_MODEL`. Generator + claim extractor (e.g. `gpt-5-mini`).
+- `RAG_EVALS_JUDGE_MODEL`. Second model for cross-family judging (e.g. `claude-haiku-4-5`).
+- `RAG_EVALS_THIRD_JUDGE`. Third leg for self-preference measurement (e.g. `gemini/gemini-2.5-flash`).
+- `RAG_EVALS_BACKEND`. `auto` | `live` | `mock`. `auto` falls back to `mock` when API keys are missing.
+- `EMBEDDING_MODEL`, `RERANKER_MODEL`, `NLI_MODEL`. Hugging Face IDs.
+- `THRESHOLD_*`. Pass/fail gates used by `make eval` to exit non-zero on regression.
 
-Adding a new LLM is one enum line in `src/rag_evals/generation/models.py` — LiteLLM does the rest.
+Adding a new LLM is one enum line in `src/rag_evals/generation/models.py`. LiteLLM does the rest.
 
 ## Project layout
 

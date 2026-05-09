@@ -8,7 +8,7 @@ Wall-clock time per pipeline stage (retrieve, rerank, generate, post-process) an
 
 ## Why it matters
 
-p95 spikes are almost always rerankers running on CPU. Without per-stage breakdown you cannot see this. Cache hit rates at the embedding, retrieval, and KV-cache levels are the cheapest single optimisation in most RAG stacks; you cannot tune them without measuring the relevant stage.
+p95 spikes are almost always rerankers running on CPU. You will not see this without a per-stage breakdown. Cache hit rates at the embedding, retrieval, and KV-cache levels are usually the cheapest single optimisation in a RAG stack — and you cannot tune them without measuring the relevant stage.
 
 ## Implementation
 
@@ -52,7 +52,7 @@ For deep dives, notebook 08 (`08_full_eval_dashboard.ipynb`) plots per-stage tim
 
 ## Notes on production telemetry
 
-The demo deliberately stays light. For production, swap `Tracer` for OpenTelemetry; both Phoenix and TruLens speak OTEL natively, and `litellm` has a built-in OTEL exporter. The shape of the metric does not change — only the transport.
+The demo deliberately stays light. For production, swap `Tracer` for OpenTelemetry. Both Phoenix and TruLens speak OTEL natively, and `litellm` ships an OTEL exporter. The shape of the metric does not change, only the transport.
 
 ## References
 

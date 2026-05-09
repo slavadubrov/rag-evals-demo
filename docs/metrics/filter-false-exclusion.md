@@ -4,7 +4,7 @@
 
 ## What it measures
 
-Per query, did the applied filter predicate exclude the gold document from the candidate set? The metric is the fraction of queries (with at least one gold doc) where this happened.
+Per query: did the applied filter predicate exclude the gold document from the candidate set? The metric is the fraction of queries (with at least one gold doc) where this happened.
 
 ```text
 filter_false_exclusion_rate =
@@ -14,7 +14,7 @@ filter_false_exclusion_rate =
 
 ## Why it matters
 
-A wrong tag, a brittle hard predicate, or a buggy LLM-driven extractor can collapse effective recall to zero. Standard retrieval metrics will not see it: Recall@k is computed over the surviving candidate set, so it can look fine. Faithfulness can also look fine — the model faithfully said "I don't know."
+A wrong tag, a brittle hard predicate, or a buggy LLM-driven extractor can collapse effective recall to zero. Standard retrieval metrics will not see it. Recall@k is computed over the surviving candidate set, so it can look perfectly fine. Faithfulness can also look fine — the model is faithfully saying "I don't know."
 
 This is the metric the article argues most teams skip and most production failures hide behind.
 
@@ -30,7 +30,7 @@ def predicate_precision_recall(predicted, gold) -> PredicateClassifierMetrics
 
 `rate_against_survivors` is the production path: pass a closure like `lambda p: store.survivor_ids(p)` for a real Qdrant collection. `QdrantStore.survivor_ids` scrolls the index without vector search and returns the survivor doc-id set, which is exactly what the metric needs.
 
-The result includes a per-query `reason` (`gold-not-in-survivors` vs `gold-survives`) so you can debug *which* queries are silently broken instead of staring at an aggregate.
+The result includes a per-query `reason` (`gold-not-in-survivors` vs `gold-survives`), so you can debug *which* queries are silently broken instead of staring at an aggregate.
 
 ## How to run
 
@@ -60,7 +60,7 @@ Use hard filter only if exclusion_rate < ε AND hard_precision >> soft_precision
 Otherwise prefer soft boost.
 ```
 
-ε in 1–2% range is a reasonable default; lower for high-stakes domains. `THRESHOLD_FILTER_FALSE_EXCLUSION` in `.env` enforces this in CI.
+ε in the 1–2% range is a reasonable default; lower for high-stakes domains. `THRESHOLD_FILTER_FALSE_EXCLUSION` in `.env` enforces this in CI.
 
 ## Companion metric: predicate precision/recall
 
@@ -69,4 +69,4 @@ When the predicate comes from an LLM extractor, treat the extractor as a classif
 ## References
 
 - Article: [§ Part 5 — The Filter False-Exclusion Rate](../../README.md#whats-evaluated).
-- Tested in `tests/test_filter_exclusion.py::test_50_percent_exclusion_rate` — reproduces the article's worked example exactly.
+- Tested in `tests/test_filter_exclusion.py::test_50_percent_exclusion_rate`, which reproduces the article's worked example exactly.

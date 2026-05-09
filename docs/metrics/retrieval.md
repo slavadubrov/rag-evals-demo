@@ -4,11 +4,11 @@
 
 ## What they measure
 
-Given a ranked list of retrieved doc ids and a set of gold doc ids per query, these metrics quantify *how high up* the relevant docs land. They cover the full retrieval pipeline — dense, sparse, hybrid, reranked — without knowing anything about generation.
+Given a ranked list of retrieved doc ids and a set of gold doc ids per query, these metrics quantify *how high up* the relevant docs land. They cover the full retrieval pipeline (dense, sparse, hybrid, reranked) without knowing anything about generation.
 
 ## Why they matter
 
-If retrieval is broken, generation cannot recover. The article argues these are the most important metrics to wire first, before you've even chosen a vector database. Recall@k is the headline: a low Recall@k caps everything downstream.
+If retrieval is broken, generation cannot recover. The article argues these are the first metrics to wire up — earlier than any vector-database decision. Recall@k is the headline: a low Recall@k caps everything downstream.
 
 ## Definitions
 
@@ -48,7 +48,7 @@ uv run python -m rag_evals.evaluation.runner --suite retrieval --report report.m
 
 ## Reasonable targets
 
-The article quotes these as illustrative, not universal: Recall@10 ≥ 0.85, MRR ≥ 0.6, nDCG@10 ≥ 0.7. Calibrate to your domain. A medical RAG with 95% Recall@10 may still be unsafe; a brainstorm assistant at 70% probably is fine.
+The article quotes these as illustrative, not universal: Recall@10 ≥ 0.85, MRR ≥ 0.6, nDCG@10 ≥ 0.7. Calibrate to your domain. A medical RAG at 95% Recall@10 may still be unsafe; a brainstorm assistant at 70% is probably fine.
 
 `make eval` enforces these via `THRESHOLD_RECALL_AT_10` and `THRESHOLD_MRR` from `.env`.
 

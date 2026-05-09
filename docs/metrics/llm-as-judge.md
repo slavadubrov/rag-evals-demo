@@ -6,12 +6,12 @@
 
 Two scorers:
 
-- **G-Eval** — pointwise rubric scoring. The judge produces an integer 1–5 against a natural-language criterion ("faithfulness", "completeness", "concision").
-- **Pairwise** — the judge picks the better answer (A vs B). Bypasses absolute-score calibration. Roughly 80% human-judge agreement at the GPT-4-class tier under MT-Bench conditions.
+- **G-Eval.** Pointwise rubric scoring. The judge produces an integer 1–5 against a natural-language criterion ("faithfulness", "completeness", "concision").
+- **Pairwise.** The judge picks the better answer (A vs B). Bypasses absolute-score calibration. Roughly 80% human-judge agreement at the GPT-4-class tier under MT-Bench conditions.
 
 ## Why it matters
 
-Holistic answer quality is hard to capture in a single number, and traditional NLP metrics (BLEU, ROUGE) correlate poorly with human judgement on open-ended generations. An LLM judge does much better — but it inherits its base model's biases. The article calls out three.
+Holistic answer quality is hard to capture in a single number, and traditional NLP metrics (BLEU, ROUGE) correlate poorly with human judgement on open-ended generations. An LLM judge does much better, but it inherits its base model's biases. The article calls out three.
 
 ## Bias 1: position
 
@@ -26,11 +26,11 @@ def averaged_pairwise(question, a, b, *, llm, criterion="faithfulness") -> Pairw
 
 ## Bias 2: verbosity
 
-Judges prefer longer answers. The 2025–2026 research is more nuanced — modern instruction-tuned judges actually penalize filler on length-controlled tests but reward genuine completeness. **Mitigation:** explicitly tell the judge how to treat length in the rubric, and consider length-controlled win rates.
+Judges prefer longer answers. The 2025–2026 research is more nuanced — modern instruction-tuned judges actually penalize filler on length-controlled tests but reward genuine completeness. **Mitigation:** spell out in the rubric how the judge should treat length, and consider length-controlled win rates.
 
 ## Bias 3: self-preference
 
-GPT-4 prefers GPT-4 outputs. The bias correlates with output perplexity — judges prefer text that is familiar to them. **Mitigation:** never use a model to judge itself.
+GPT-4 prefers GPT-4 outputs. The bias correlates with output perplexity: judges prefer text that is familiar to them. **Mitigation:** never use a model to judge itself.
 
 ```python
 def cross_family_judges(generator: Model) -> list[Model]
@@ -56,7 +56,7 @@ def cross_family_judges(generator: Model) -> list[Model]
 jupyter notebook notebooks/07_llm_as_judge.ipynb
 ```
 
-The notebook walks through: a baseline pairwise run, position-bias measurement, averaging-mitigation, and cross-family judging. With the default `RAG_EVALS_BACKEND=mock`, the judges return SHA1-keyed deterministic verdicts so the bias visualisation is reproducible.
+The notebook walks through a baseline pairwise run, position-bias measurement, the averaging mitigation, and cross-family judging. With the default `RAG_EVALS_BACKEND=mock`, the judges return SHA1-keyed deterministic verdicts so the bias visualisation is reproducible.
 
 ## References
 

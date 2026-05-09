@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 320" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+    </marker>
+    <style>
+      .box { fill: #fff; stroke: #334155; stroke-width: 1.2; rx: 6; ry: 6; }
+      .lbl { fill: #0f172a; font-weight: 500; }
+      .sub { fill: #475569; font-size: 11px; }
+      .ret { fill: #eff6ff; stroke: #1d4ed8; }
+      .gen { fill: #ecfdf5; stroke: #047857; }
+      .eval { fill: #fef3c7; stroke: #b45309; }
+      .arrow { stroke: #334155; stroke-width: 1.4; fill: none; }
+      .dotted { stroke: #94a3b8; stroke-width: 1.2; stroke-dasharray: 4 3; fill: none; }
+      .header { fill: #475569; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+    </style>
+  </defs>
+
+  <text class="header" x="40" y="40">request path</text>
+
+  <!-- query -->
+  <g>
+    <rect class="box" x="40" y="60" width="110" height="56"/>
+    <text class="lbl" x="95" y="84" text-anchor="middle">query</text>
+    <text class="sub" x="95" y="102" text-anchor="middle">scifact test set</text>
+  </g>
+
+  <!-- dense -->
+  <g>
+    <rect class="box ret" x="190" y="30" width="150" height="50"/>
+    <text class="lbl" x="265" y="51" text-anchor="middle">retrieve dense</text>
+    <text class="sub" x="265" y="68" text-anchor="middle">bge-small-en-v1.5</text>
+  </g>
+  <!-- sparse -->
+  <g>
+    <rect class="box ret" x="190" y="96" width="150" height="50"/>
+    <text class="lbl" x="265" y="117" text-anchor="middle">retrieve sparse</text>
+    <text class="sub" x="265" y="134" text-anchor="middle">BM25</text>
+  </g>
+
+  <!-- fuse -->
+  <g>
+    <rect class="box ret" x="380" y="60" width="120" height="56"/>
+    <text class="lbl" x="440" y="84" text-anchor="middle">RRF fuse</text>
+    <text class="sub" x="440" y="102" text-anchor="middle">k = 60</text>
+  </g>
+
+  <!-- rerank -->
+  <g>
+    <rect class="box ret" x="540" y="60" width="130" height="56"/>
+    <text class="lbl" x="605" y="84" text-anchor="middle">rerank</text>
+    <text class="sub" x="605" y="102" text-anchor="middle">cross-encoder</text>
+  </g>
+
+  <!-- generate -->
+  <g>
+    <rect class="box gen" x="710" y="60" width="170" height="56"/>
+    <text class="lbl" x="795" y="84" text-anchor="middle">generate</text>
+    <text class="sub" x="795" y="102" text-anchor="middle">LiteLLM (gpt-5-mini …)</text>
+  </g>
+
+  <!-- arrows along request path -->
+  <path class="arrow" d="M150 78 L188 55" marker-end="url(#arr)"/>
+  <path class="arrow" d="M150 100 L188 121" marker-end="url(#arr)"/>
+  <path class="arrow" d="M340 55 L380 80" marker-end="url(#arr)"/>
+  <path class="arrow" d="M340 121 L380 96" marker-end="url(#arr)"/>
+  <path class="arrow" d="M500 88 L540 88" marker-end="url(#arr)"/>
+  <path class="arrow" d="M670 88 L710 88" marker-end="url(#arr)"/>
+
+  <!-- evaluators row -->
+  <text class="header" x="40" y="200">evaluators</text>
+
+  <!-- filter false-exclusion (taps the retrieval predicate) -->
+  <g>
+    <rect class="box eval" x="190" y="220" width="180" height="56"/>
+    <text class="lbl" x="280" y="244" text-anchor="middle">filter false-exclusion</text>
+    <text class="sub" x="280" y="262" text-anchor="middle">silent-failure detector</text>
+  </g>
+  <!-- retrieval metrics -->
+  <g>
+    <rect class="box eval" x="390" y="220" width="160" height="56"/>
+    <text class="lbl" x="470" y="244" text-anchor="middle">retrieval metrics</text>
+    <text class="sub" x="470" y="262" text-anchor="middle">Recall@k, MRR, nDCG</text>
+  </g>
+  <!-- faithfulness -->
+  <g>
+    <rect class="box eval" x="570" y="220" width="140" height="56"/>
+    <text class="lbl" x="640" y="244" text-anchor="middle">faithfulness</text>
+    <text class="sub" x="640" y="262" text-anchor="middle">claims + verify</text>
+  </g>
+  <!-- LLM judge -->
+  <g>
+    <rect class="box eval" x="730" y="220" width="150" height="56"/>
+    <text class="lbl" x="805" y="244" text-anchor="middle">LLM-as-judge</text>
+    <text class="sub" x="805" y="262" text-anchor="middle">cross-family</text>
+  </g>
+
+  <!-- dotted taps -->
+  <path class="dotted" d="M265 146 L265 220" marker-end="url(#arr)"/>
+  <path class="dotted" d="M440 116 L440 195 L470 195 L470 220" marker-end="url(#arr)"/>
+  <path class="dotted" d="M795 116 L795 180 L640 180 L640 220" marker-end="url(#arr)"/>
+  <path class="dotted" d="M795 116 L805 220" marker-end="url(#arr)"/>
+
+  <!-- latency strip -->
+  <g>
+    <rect class="box" x="40" y="220" width="130" height="56"/>
+    <text class="lbl" x="105" y="244" text-anchor="middle">latency tracer</text>
+    <text class="sub" x="105" y="262" text-anchor="middle">p50 / p95 / p99</text>
+  </g>
+  <path class="dotted" d="M105 220 L105 195 L795 195" />
+</svg>
