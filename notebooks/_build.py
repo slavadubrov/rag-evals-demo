@@ -552,9 +552,28 @@ nb09 = [
         """
         import json, pandas as pd
         from pathlib import Path
+        from IPython.display import Markdown, display
         bench = json.loads(Path("../report/benchmark.json").read_text())
         print({k: type(v).__name__ for k, v in bench.items()})
         bench["settings"]
+        """
+    ),
+    md("## ⚠ Mock-data warning"),
+    code(
+        """
+        # If the underlying benchmark run involved mock LLMs, every LLM-derived
+        # number below (faithfulness, latency, win-rates, sample answers) is
+        # a deterministic stub or fixture replay — NOT a real model evaluation.
+        if bench.get("has_mock_data"):
+            display(Markdown(
+                "> ⚠️  **MOCK DATA — NOT A REAL EVALUATION** ⚠️\\n"
+                ">\\n"
+                f"> {bench.get('mock_warning', '')}\\n"
+                ">\\n"
+                "> Rows tagged `[MOCK]` below were produced (in whole or in part) by a mock LLM."
+            ))
+        else:
+            print("benchmark.json reports no mock data — all rows are live.")
         """
     ),
     md("## Chunking sweep — embedding fixed, chunking varied"),
@@ -607,7 +626,18 @@ nb09 = [
         """
         df_llm = pd.DataFrame(bench["llm_sweep"])
         if not df_llm.empty:
+            # Tag mock rows so the dataframe view makes the contamination obvious.
+            if "is_mock" in df_llm.columns:
+                df_llm["model"] = df_llm.apply(
+                    lambda r: ("[MOCK] " if r.get("is_mock") else "") + r["model"], axis=1
+                )
             display(df_llm.set_index("model"))
+            if df_llm.get("is_mock", pd.Series(dtype=bool)).any():
+                display(Markdown(
+                    "**⚠ Rows prefixed `[MOCK]` are not real evaluations — "
+                    "their faithfulness, latency, and sample answer come from "
+                    "MockBackend. Re-run with live API keys to replace.**"
+                ))
         """
     ),
     code(
@@ -621,6 +651,9 @@ nb09 = [
             df_llm.set_index("model")[["avg_latency_ms", "p95_latency_ms"]].plot(
                 kind="bar", ax=axes[1], title="Latency (ms)"
             )
+            if bench.get("has_mock_data"):
+                for ax in axes:
+                    ax.set_title(ax.get_title() + "  (⚠ contains MOCK rows)")
             for ax in axes:
                 ax.tick_params(axis="x", rotation=20)
             plt.tight_layout()
@@ -632,7 +665,17 @@ nb09 = [
         """
         df_pw = pd.DataFrame(bench.get("pairwise", []))
         if not df_pw.empty:
-            display(df_pw)
+            if "is_mock" in df_pw.columns and df_pw["is_mock"].any():
+                df_pw = df_pw.copy()
+                df_pw["a"] = df_pw.apply(lambda r: ("[MOCK] " if r["is_mock"] else "") + r["a"], axis=1)
+                df_pw["b"] = df_pw.apply(lambda r: ("[MOCK] " if r["is_mock"] else "") + r["b"], axis=1)
+                display(df_pw)
+                display(Markdown(
+                    "**⚠ `[MOCK]`-tagged rows had at least one mock generator — "
+                    "win counts reflect a deterministic stub, not real preference.**"
+                ))
+            else:
+                display(df_pw)
         else:
             print("no pairwise data — re-run with live LLM keys to populate")
         """

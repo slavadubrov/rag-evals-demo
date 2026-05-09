@@ -50,7 +50,7 @@ def ingest(
     batch_size: int = 64,
     embedding_model: str | None = None,
 ) -> int:
-    store = store or QdrantStore()
+    store = store or QdrantStore(dense_dim=dense_dim(embedding_model))
     store.ensure_collection()
 
     chunks: list[Chunk] = chunk_documents(

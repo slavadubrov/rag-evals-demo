@@ -31,6 +31,13 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
+from rag_evals._mock_warning import (
+    MOCK_BANNER_MD,
+    MOCK_BANNER_TEXT,
+    is_mock,
+    reset_mock_warnings,
+    warn_mock_eval,
+)
 from rag_evals.config import settings
 from rag_evals.data import scifact
 from rag_evals.evaluation import faithfulness as fa
@@ -54,16 +61,31 @@ console = Console()
 # ---------------------------------------------------------------------------
 
 CHUNKING_CONFIGS: list[dict[str, Any]] = [
-    {"name": "recursive_256_32", "strategy": "recursive", "target_tokens": 256, "overlap_tokens": 32},
-    {"name": "recursive_128_16", "strategy": "recursive", "target_tokens": 128, "overlap_tokens": 16},
-    {"name": "recursive_512_64", "strategy": "recursive", "target_tokens": 512, "overlap_tokens": 64},
-    {"name": "structural_256",   "strategy": "structural", "target_tokens": 256, "overlap_tokens": 0},
+    {
+        "name": "recursive_256_32",
+        "strategy": "recursive",
+        "target_tokens": 256,
+        "overlap_tokens": 32,
+    },
+    {
+        "name": "recursive_128_16",
+        "strategy": "recursive",
+        "target_tokens": 128,
+        "overlap_tokens": 16,
+    },
+    {
+        "name": "recursive_512_64",
+        "strategy": "recursive",
+        "target_tokens": 512,
+        "overlap_tokens": 64,
+    },
+    {"name": "structural_256", "strategy": "structural", "target_tokens": 256, "overlap_tokens": 0},
 ]
 
 EMBEDDING_CONFIGS: list[dict[str, Any]] = [
-    {"name": "bge-small-en-v1.5",   "model": "BAAI/bge-small-en-v1.5"},
-    {"name": "all-MiniLM-L6-v2",    "model": "sentence-transformers/all-MiniLM-L6-v2"},
-    {"name": "bge-base-en-v1.5",    "model": "BAAI/bge-base-en-v1.5"},
+    {"name": "bge-small-en-v1.5", "model": "BAAI/bge-small-en-v1.5"},
+    {"name": "all-MiniLM-L6-v2", "model": "sentence-transformers/all-MiniLM-L6-v2"},
+    {"name": "bge-base-en-v1.5", "model": "BAAI/bge-base-en-v1.5"},
 ]
 
 LLM_MODELS: list[Model] = [Model.GPT_5_MINI, Model.CLAUDE_HAIKU_4_5, Model.GEMINI_2_5_FLASH]
@@ -102,6 +124,10 @@ class LLMBenchResult:
     faithfulness_llm: float | None
     n_failures: int
     sample_answer: str = ""
+    # True when any LLM involved in producing this row's numbers (the
+    # generator itself or the cross-family judge used for faithfulness)
+    # ran in mock mode. Mock-derived numbers are not real evaluations.
+    is_mock: bool = False
 
 
 @dataclass
@@ -112,6 +138,7 @@ class PairwiseRow:
     a_wins: int
     b_wins: int
     ties: int
+    is_mock: bool = False  # generator(s) or judge ran in mock mode
 
     def winrate_a(self) -> float:
         total = self.a_wins + self.b_wins + self.ties
@@ -125,6 +152,10 @@ class BenchmarkReport:
     llm_sweep: list[LLMBenchResult] = field(default_factory=list)
     pairwise: list[PairwiseRow] = field(default_factory=list)
     settings: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def has_mock_data(self) -> bool:
+        return any(r.is_mock for r in self.llm_sweep) or any(r.is_mock for r in self.pairwise)
 
 
 def _take_docs(n: int) -> list[Document]:
@@ -157,9 +188,7 @@ def _select_queries(docs: Iterable[Document], n: int) -> list[dict[str, Any]]:
     return rows
 
 
-def _eval_retrieval(
-    rows: list[dict[str, Any]], retriever, *, k: int = 10
-) -> dict[str, Any]:
+def _eval_retrieval(rows: list[dict[str, Any]], retriever, *, k: int = 10) -> dict[str, Any]:
     runs: dict[str, list[str]] = {}
     gold: dict[str, list[str]] = {}
     for r in rows:
@@ -301,8 +330,12 @@ def llm_sweep(
 ) -> tuple[list[LLMBenchResult], list[PairwiseRow]]:
     """Compare each LLM as the answer generator. Live where keys exist, mock otherwise.
 
-    Faithfulness is computed two ways: heuristic (deterministic) and
-    LLM-judge using a *different* family from the generator (cross-family).
+    Faithfulness is computed two ways, both using a cross-family judge for
+    claim extraction so the answer is decomposed by a model that didn't write
+    it: (1) heuristic — deterministic content-word overlap of each claim
+    against the retrieved context; (2) LLM-judge — the cross-family judge
+    also verifies each claim. Heuristic gives a deterministic baseline that
+    the LLM judge can be compared against.
     """
     store = store or QdrantStore()
     retriever = HybridRetriever(DenseRetriever(store=store), SparseRetriever(store=store))
@@ -310,9 +343,33 @@ def llm_sweep(
     # 1) Generate answers per model
     answers: dict[str, list[dict[str, Any]]] = {}
     out_rows: list[LLMBenchResult] = []
+    mock_modes: dict[str, bool] = {}  # model.value -> generator-was-mock
     for model in LLM_MODELS:
         llm = LLM(model)
+        if is_mock(llm):
+            warn_mock_eval(f"benchmark.llm_sweep.generator[{model.value}]")
+            rprint(
+                f"[bold red]   ⚠ MOCK MODE[/bold red] for {model.value} — "
+                "rows produced will be flagged [MOCK] in the report."
+            )
         rprint(f"[cyan]llm[/cyan]       {model.value}  (mode={llm.mode})  -> {len(rows)} queries")
+        mock_modes[model.value] = is_mock(llm)
+        # Cross-family judge resolved once per generator. Used for claim
+        # extraction in both faithfulness paths (so the heuristic is scored
+        # against real atomic claims, not a raw sentence split) and as the
+        # verifier in the LLM-judge path. Falls back to mock when no live
+        # cross-family key is available, which makes claim extraction
+        # deterministic-and-free via the sentence-split path.
+        judge_llm: LLM | None = None
+        if llm.mode == "live":
+            for m in LLM_MODELS:
+                if _same_family(m, model):
+                    continue
+                candidate = LLM(m)
+                if candidate.mode == "live":
+                    judge_llm = candidate
+                    break
+        extractor_llm = judge_llm or LLM(Model.MOCK)
         per_q: list[dict[str, Any]] = []
         latencies: list[float] = []
         failures = 0
@@ -327,17 +384,17 @@ def llm_sweep(
                 continue
             latencies.append(rag.latency_ms)
             ctx = "\n\n".join(h.text or "" for h in rag.context)
-            f_h = fa.faithfulness(rag.answer, ctx, use_heuristic=True).score
+            f_h = fa.faithfulness(rag.answer, ctx, llm=extractor_llm, use_heuristic=True).score
             faith_h.append(f_h)
-            if llm.mode == "live":
-                # Use a cross-family judge to score faithfulness when possible.
-                judge_models = [m for m in LLM_MODELS if not _same_family(m, model)]
-                judge = next((m for m in judge_models if LLM(m).mode == "live"), None)
-                if judge is not None:
-                    f_l = fa.faithfulness(rag.answer, ctx, llm=LLM(judge)).score
-                    faith_llm.append(f_l)
+            if judge_llm is not None:
+                f_l = fa.faithfulness(rag.answer, ctx, llm=judge_llm).score
+                faith_llm.append(f_l)
             per_q.append({"qid": r["qid"], "query": r["query"], "answer": rag.answer})
         answers[model.value] = per_q
+        # Row is mock-tainted if either the generator OR the cross-family
+        # judge ran in mock mode (LLM-faithfulness column is None in that
+        # case, but the heuristic column still depends on extractor mode).
+        row_is_mock = is_mock(llm) or is_mock(extractor_llm)
         out_rows.append(
             LLMBenchResult(
                 model=model.value,
@@ -349,6 +406,7 @@ def llm_sweep(
                 faithfulness_llm=round(statistics.mean(faith_llm), 4) if faith_llm else None,
                 n_failures=failures,
                 sample_answer=(per_q[0]["answer"][:240] + "…") if per_q else "",
+                is_mock=row_is_mock,
             )
         )
 
@@ -386,6 +444,9 @@ def llm_sweep(
                         b_wins += 1
                     else:
                         ties += 1
+                # Pairwise is gated on a live judge already, but the
+                # generators feeding A and B answers may have been mock —
+                # propagate that into the row so the report flags it.
                 pairwise_rows.append(
                     PairwiseRow(
                         judge=judge_model.value,
@@ -394,6 +455,7 @@ def llm_sweep(
                         a_wins=a_wins,
                         b_wins=b_wins,
                         ties=ties,
+                        is_mock=mock_modes.get(ma.value, False) or mock_modes.get(mb.value, False),
                     )
                 )
     return out_rows, pairwise_rows
@@ -431,10 +493,19 @@ def _percentile(xs: list[float], p: float) -> float:
 # ---------------------------------------------------------------------------
 
 
+def _mock_tag(is_mock_row: bool) -> str:
+    return "[MOCK] " if is_mock_row else ""
+
+
 def render_markdown(report: BenchmarkReport) -> str:
     lines: list[str] = ["# RAG benchmark report", ""]
-    lines.append(f"_n-docs={report.settings.get('n_docs')} · n-queries={report.settings.get('n_queries')}_")
+    lines.append(
+        f"_n-docs={report.settings.get('n_docs')} · n-queries={report.settings.get('n_queries')}_"
+    )
     lines.append("")
+    if report.has_mock_data:
+        lines.append(MOCK_BANNER_MD)
+        lines.append("")
 
     if report.chunking_sweep:
         lines.append("## Chunking sweep (embedding fixed)")
@@ -463,6 +534,13 @@ def render_markdown(report: BenchmarkReport) -> str:
     if report.llm_sweep:
         lines.append("## LLM sweep (retriever fixed, generator varies)")
         lines.append("")
+        if any(r.is_mock for r in report.llm_sweep):
+            lines.append(
+                "_Rows tagged `[MOCK]` were produced with a mock LLM — "
+                "faithfulness, latency, and the sample answer for those rows "
+                "are NOT real evaluations._"
+            )
+            lines.append("")
         lines.append(
             "| model | mode | n | avg latency ms | p95 latency ms | faith (heuristic) | faith (LLM judge) | failures |"
         )
@@ -470,7 +548,7 @@ def render_markdown(report: BenchmarkReport) -> str:
         for r in report.llm_sweep:
             faith_llm = "—" if r.faithfulness_llm is None else f"{r.faithfulness_llm:.3f}"
             lines.append(
-                f"| {r.model} | {r.backend_mode} | {r.n_queries} | "
+                f"| {_mock_tag(r.is_mock)}{r.model} | {r.backend_mode} | {r.n_queries} | "
                 f"{r.avg_latency_ms:.0f} | {r.p95_latency_ms:.0f} | "
                 f"{r.faithfulness_heuristic:.3f} | {faith_llm} | {r.n_failures} |"
             )
@@ -479,11 +557,18 @@ def render_markdown(report: BenchmarkReport) -> str:
     if report.pairwise:
         lines.append("## Pairwise judge (cross-family judge)")
         lines.append("")
+        if any(r.is_mock for r in report.pairwise):
+            lines.append(
+                "_Rows tagged `[MOCK]` had at least one mock generator — "
+                "win counts reflect the deterministic mock stub, NOT real model preference._"
+            )
+            lines.append("")
         lines.append("| judge | A | B | A wins | B wins | ties | A win-rate |")
         lines.append("| --- | --- | --- | ---: | ---: | ---: | ---: |")
         for r in report.pairwise:
             lines.append(
-                f"| {r.judge} | {r.a} | {r.b} | {r.a_wins} | {r.b_wins} | {r.ties} | "
+                f"| {r.judge} | {_mock_tag(r.is_mock)}{r.a} | {_mock_tag(r.is_mock)}{r.b} | "
+                f"{r.a_wins} | {r.b_wins} | {r.ties} | "
                 f"{r.winrate_a():.2f} |"
             )
         lines.append("")
@@ -492,7 +577,8 @@ def render_markdown(report: BenchmarkReport) -> str:
         lines.append("## Sample answers")
         lines.append("")
         for r in report.llm_sweep:
-            lines.append(f"### {r.model}")
+            mock_note = " — **MOCK ANSWER, not real model output**" if r.is_mock else ""
+            lines.append(f"### {_mock_tag(r.is_mock)}{r.model}{mock_note}")
             lines.append("")
             lines.append(f"> {r.sample_answer}")
             lines.append("")
@@ -501,46 +587,95 @@ def render_markdown(report: BenchmarkReport) -> str:
 
 
 def print_console(report: BenchmarkReport) -> None:
+    if report.has_mock_data:
+        bar = "!" * 78
+        console.print(f"[bold red]{bar}[/bold red]")
+        console.print(f"[bold red]!!! {MOCK_BANNER_TEXT}[/bold red]")
+        console.print(
+            "[bold red]!!! Rows tagged [MOCK] below were produced (in whole or "
+            "in part) by a mock LLM.[/bold red]"
+        )
+        console.print(f"[bold red]{bar}[/bold red]\n")
     if report.chunking_sweep:
         t = Table(title="Chunking sweep")
         for c in ("config", "chunks", "Recall@10", "MRR", "nDCG@10"):
             t.add_column(c)
         for r in report.chunking_sweep:
-            t.add_row(r.config, str(r.n_chunks), f"{r.recall_at_10:.3f}", f"{r.mrr:.3f}", f"{r.ndcg_at_10:.3f}")
+            t.add_row(
+                r.config,
+                str(r.n_chunks),
+                f"{r.recall_at_10:.3f}",
+                f"{r.mrr:.3f}",
+                f"{r.ndcg_at_10:.3f}",
+            )
         console.print(t)
     if report.embedding_sweep:
         t = Table(title="Embedding sweep")
         for c in ("embedding", "chunks", "Recall@10", "MRR", "nDCG@10"):
             t.add_column(c)
         for r in report.embedding_sweep:
-            t.add_row(r.config, str(r.n_chunks), f"{r.recall_at_10:.3f}", f"{r.mrr:.3f}", f"{r.ndcg_at_10:.3f}")
+            t.add_row(
+                r.config,
+                str(r.n_chunks),
+                f"{r.recall_at_10:.3f}",
+                f"{r.mrr:.3f}",
+                f"{r.ndcg_at_10:.3f}",
+            )
         console.print(t)
     if report.llm_sweep:
-        t = Table(title="LLM sweep")
+        title = "LLM sweep"
+        if any(r.is_mock for r in report.llm_sweep):
+            title += "  (⚠ contains MOCK rows — flagged below)"
+        t = Table(title=title)
         for c in ("model", "mode", "avg ms", "p95 ms", "faith(h)", "faith(llm)"):
             t.add_column(c)
         for r in report.llm_sweep:
             faith_llm = "—" if r.faithfulness_llm is None else f"{r.faithfulness_llm:.3f}"
+            label = f"[bold red][MOCK][/bold red] {r.model}" if r.is_mock else r.model
             t.add_row(
-                r.model, r.backend_mode, f"{r.avg_latency_ms:.0f}",
-                f"{r.p95_latency_ms:.0f}", f"{r.faithfulness_heuristic:.3f}", faith_llm,
+                label,
+                r.backend_mode,
+                f"{r.avg_latency_ms:.0f}",
+                f"{r.p95_latency_ms:.0f}",
+                f"{r.faithfulness_heuristic:.3f}",
+                faith_llm,
             )
         console.print(t)
     if report.pairwise:
-        t = Table(title="Pairwise (cross-family judge)")
+        title = "Pairwise (cross-family judge)"
+        if any(r.is_mock for r in report.pairwise):
+            title += "  (⚠ contains MOCK rows — flagged below)"
+        t = Table(title=title)
         for c in ("judge", "A", "B", "A wins", "B wins", "ties", "A wr"):
             t.add_column(c)
         for r in report.pairwise:
+            a_label = f"[bold red][MOCK][/bold red] {r.a}" if r.is_mock else r.a
+            b_label = f"[bold red][MOCK][/bold red] {r.b}" if r.is_mock else r.b
             t.add_row(
-                r.judge, r.a, r.b, str(r.a_wins), str(r.b_wins), str(r.ties),
+                r.judge,
+                a_label,
+                b_label,
+                str(r.a_wins),
+                str(r.b_wins),
+                str(r.ties),
                 f"{r.winrate_a():.2f}",
             )
         console.print(t)
+    if report.has_mock_data:
+        console.print(
+            "\n[bold red]⚠ This benchmark contains mock data — see the warning "
+            "banner above. Numbers in [MOCK]-tagged rows are not real model "
+            "evaluations.[/bold red]"
+        )
 
 
 def serialise(report: BenchmarkReport) -> dict[str, Any]:
     return {
         "settings": report.settings,
+        # Top-level mock-data flag + warning text. Downstream readers (the
+        # benchmark notebook, CI dashboards) MUST surface this when true.
+        "has_mock_data": report.has_mock_data,
+        "mock_warning": MOCK_BANNER_TEXT if report.has_mock_data else None,
         "chunking_sweep": [asdict(r) for r in report.chunking_sweep],
         "embedding_sweep": [asdict(r) for r in report.embedding_sweep],
         "llm_sweep": [asdict(r) for r in report.llm_sweep],
@@ -603,9 +738,7 @@ def _run(
         # LLM sweep uses the *default* collection, so we don't need to re-index.
         store = QdrantStore()
         store.ensure_collection()
-        rprint(
-            f"[cyan]llm sweep collection[/cyan] {store.collection!r} ({store.count()} points)"
-        )
+        rprint(f"[cyan]llm sweep collection[/cyan] {store.collection!r} ({store.count()} points)")
         # LLM sweep uses the full retrieval golden set, capped by --n-llm-queries.
         all_path = settings.golden_dir / "retrieval.jsonl"
         with all_path.open() as f:
@@ -631,14 +764,16 @@ def main(
     skip_llm: bool = typer.Option(False),
     out: Path = typer.Option(REPORT_DIR, help="Output directory"),  # noqa: B008
 ) -> None:
-    report = _run(
-        n_docs, n_queries, n_llm_queries, skip_chunking, skip_embedding, skip_llm, out
-    )
+    # Re-arm the one-shot mock warnings so a fresh run gets a fresh banner.
+    reset_mock_warnings()
+    report = _run(n_docs, n_queries, n_llm_queries, skip_chunking, skip_embedding, skip_llm, out)
     out.mkdir(parents=True, exist_ok=True)
     (out / "benchmark.json").write_text(json.dumps(serialise(report), indent=2))
     (out / "benchmark.md").write_text(render_markdown(report))
     rprint(f"\n[green]wrote[/green] {out / 'benchmark.md'} and {out / 'benchmark.json'}")
     print_console(report)
+    if report.has_mock_data:
+        warn_mock_eval("benchmark.main.summary")
 
 
 if __name__ == "__main__":

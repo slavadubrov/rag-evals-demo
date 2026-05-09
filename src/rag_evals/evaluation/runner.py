@@ -114,7 +114,8 @@ def _check_gates(suite: dict[str, Any]) -> list[dict[str, Any]]:
                 "name": "Filter false-exclusion",
                 "observed": suite["filter_exclusion"]["rate"],
                 "threshold": settings.threshold_filter_false_exclusion,
-                "pass": suite["filter_exclusion"]["rate"] <= settings.threshold_filter_false_exclusion,
+                "pass": suite["filter_exclusion"]["rate"]
+                <= settings.threshold_filter_false_exclusion,
             }
         )
     return gates

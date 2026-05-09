@@ -57,7 +57,9 @@ class QdrantStore:
         self.client.create_collection(
             collection_name=self.collection,
             vectors_config={
-                DENSE_VECTOR_NAME: qm.VectorParams(size=self.dense_dim, distance=qm.Distance.COSINE),
+                DENSE_VECTOR_NAME: qm.VectorParams(
+                    size=self.dense_dim, distance=qm.Distance.COSINE
+                ),
             },
             sparse_vectors_config={
                 SPARSE_VECTOR_NAME: qm.SparseVectorParams(),
