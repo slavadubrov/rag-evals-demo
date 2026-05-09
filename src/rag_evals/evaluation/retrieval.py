@@ -12,11 +12,24 @@ from math import log2
 from statistics import mean
 
 
+def _unique(ranked: Sequence[str]) -> list[str]:
+    """Drop chunk-level duplicates so doc-level metrics aren't inflated by
+    multiple chunks of the same document landing in the top-k.
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for d in ranked:
+        if d not in seen:
+            seen.add(d)
+            out.append(d)
+    return out
+
+
 def recall_at_k(ranked: Sequence[str], gold: Iterable[str], k: int) -> float:
     gold_set = set(gold)
     if not gold_set:
         return 0.0
-    hits = sum(1 for d in ranked[:k] if d in gold_set)
+    hits = sum(1 for d in _unique(ranked)[:k] if d in gold_set)
     return hits / len(gold_set)
 
 
@@ -24,13 +37,13 @@ def precision_at_k(ranked: Sequence[str], gold: Iterable[str], k: int) -> float:
     if k <= 0:
         return 0.0
     gold_set = set(gold)
-    hits = sum(1 for d in ranked[:k] if d in gold_set)
+    hits = sum(1 for d in _unique(ranked)[:k] if d in gold_set)
     return hits / k
 
 
 def reciprocal_rank(ranked: Sequence[str], gold: Iterable[str]) -> float:
     gold_set = set(gold)
-    for r, d in enumerate(ranked, start=1):
+    for r, d in enumerate(_unique(ranked), start=1):
         if d in gold_set:
             return 1.0 / r
     return 0.0
@@ -38,13 +51,13 @@ def reciprocal_rank(ranked: Sequence[str], gold: Iterable[str]) -> float:
 
 def hit_rate_at_k(ranked: Sequence[str], gold: Iterable[str], k: int) -> float:
     gold_set = set(gold)
-    return 1.0 if any(d in gold_set for d in ranked[:k]) else 0.0
+    return 1.0 if any(d in gold_set for d in _unique(ranked)[:k]) else 0.0
 
 
 def ndcg_at_k(ranked: Sequence[str], gold: Iterable[str], k: int) -> float:
     """Binary relevance nDCG@k."""
     gold_set = set(gold)
-    gains = [1.0 if d in gold_set else 0.0 for d in ranked[:k]]
+    gains = [1.0 if d in gold_set else 0.0 for d in _unique(ranked)[:k]]
     dcg = sum(g / log2(i + 2) for i, g in enumerate(gains))
     n_gold_in_topk = min(k, len(gold_set))
     idcg = sum(1.0 / log2(i + 2) for i in range(n_gold_in_topk))
@@ -57,7 +70,7 @@ def average_precision(ranked: Sequence[str], gold: Iterable[str]) -> float:
         return 0.0
     hits = 0
     score = 0.0
-    for r, d in enumerate(ranked, start=1):
+    for r, d in enumerate(_unique(ranked), start=1):
         if d in gold_set:
             hits += 1
             score += hits / r
@@ -85,7 +98,9 @@ def evaluate_runs(
 ) -> RetrievalMetrics:
     """Evaluate ranked retrieval results against a gold map.
 
-    runs: qid -> ranked list of doc_ids
+    runs: qid -> ranked list of doc_ids (chunk-level duplicates are deduped
+        inside each per-query metric so chunk granularity doesn't inflate
+        Recall etc.).
     gold: qid -> iterable of relevant doc_ids
     """
     qids = [q for q in runs if gold.get(q)]

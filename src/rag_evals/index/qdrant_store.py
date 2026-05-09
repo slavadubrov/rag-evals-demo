@@ -39,9 +39,11 @@ class QdrantStore:
         url: str | None = None,
         collection: str | None = None,
         path: str | None = None,
+        dense_dim: int = DENSE_DIM,
     ) -> None:
         self.url = url if url is not None else settings.qdrant_url
         self.collection = collection or settings.qdrant_collection
+        self.dense_dim = dense_dim
         if self.url:
             self.path = None
             self.client = QdrantClient(url=self.url)
@@ -55,7 +57,9 @@ class QdrantStore:
         self.client.create_collection(
             collection_name=self.collection,
             vectors_config={
-                DENSE_VECTOR_NAME: qm.VectorParams(size=DENSE_DIM, distance=qm.Distance.COSINE),
+                DENSE_VECTOR_NAME: qm.VectorParams(
+                    size=self.dense_dim, distance=qm.Distance.COSINE
+                ),
             },
             sparse_vectors_config={
                 SPARSE_VECTOR_NAME: qm.SparseVectorParams(),

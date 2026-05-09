@@ -75,18 +75,25 @@ class LLM:
         messages: list[dict[str, Any]],
         *,
         temperature: float = 0.0,
-        max_tokens: int = 512,
+        max_tokens: int = 1024,
     ) -> str:
         if self.mode == "mock":
             return self._mock.complete(self.model.value, messages)
         import litellm  # local import to keep CLI cold-start fast
 
-        resp = litellm.completion(
-            model=self.model.value,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
+        kwargs: dict[str, Any] = {
+            "model": self.model.value,
+            "messages": messages,
+            "max_tokens": max_tokens,
+        }
+        # gpt-5 family is a reasoning model — only temperature=1 is allowed,
+        # and reasoning tokens count against ``max_tokens`` (so we keep it
+        # generous enough for the answer to fit alongside reasoning).
+        if self.model.value.startswith("gpt-5"):
+            kwargs["temperature"] = 1.0
+        else:
+            kwargs["temperature"] = temperature
+        resp = litellm.completion(**kwargs)
         return resp.choices[0].message.content or ""
 
     def ask(self, prompt: str, *, system: str | None = None, **kw: Any) -> str:

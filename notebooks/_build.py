@@ -1,20 +1,26 @@
-"""Generate the 9 notebooks. Run once after editing — outputs go straight
-to ``notebooks/*.ipynb``. Each notebook imports from ``src/rag_evals/`` so
+"""Generate the notebooks. Run once after editing — outputs go straight to
+``notebooks/*.ipynb``. Each notebook imports from ``src/rag_evals/`` so
 the metric logic lives in one place.
 """
 
 from __future__ import annotations
 
 import json
+import uuid
 from pathlib import Path
 from textwrap import dedent
 
 OUT = Path(__file__).resolve().parent
 
 
+def _cell_id() -> str:
+    return uuid.uuid4().hex[:12]
+
+
 def md(text: str) -> dict:
     return {
         "cell_type": "markdown",
+        "id": _cell_id(),
         "metadata": {},
         "source": [line + "\n" for line in dedent(text).strip().splitlines()],
     }
@@ -23,6 +29,7 @@ def md(text: str) -> dict:
 def code(text: str) -> dict:
     return {
         "cell_type": "code",
+        "id": _cell_id(),
         "metadata": {},
         "source": [line + "\n" for line in dedent(text).strip().splitlines()],
         "outputs": [],
@@ -157,7 +164,7 @@ nb01 = [
         dense = DenseRetriever()
         runs_dense, gold = {}, {}
         for r in rows:
-            hits = dense(r["query"], limit=10)
+            hits = dense(r["query"], limit=30)
             runs_dense[r["qid"]] = [h.doc_id for h in hits]
             gold[r["qid"]] = r["gold_doc_ids"]
 
@@ -196,23 +203,27 @@ nb02 = [
         import json
         from rag_evals.config import settings
         from rag_evals.evaluation.retrieval import evaluate_runs
+        from rag_evals.index.qdrant_store import QdrantStore
         from rag_evals.retrieval.dense import DenseRetriever
         from rag_evals.retrieval.sparse import SparseRetriever
         from rag_evals.retrieval.hybrid_rrf import HybridRetriever
 
         rows = [json.loads(l) for l in (settings.golden_dir / "retrieval.jsonl").open()][:50]
 
-        dense = DenseRetriever()
-        sparse = SparseRetriever()
+        # Share a single store across retrievers — embedded Qdrant only allows
+        # one client per storage folder.
+        store = QdrantStore()
+        dense = DenseRetriever(store=store)
+        sparse = SparseRetriever(store=store)
         hybrid = HybridRetriever(dense, sparse, k=60)
 
         results = {"dense": {}, "sparse": {}, "hybrid": {}}
         gold = {}
         for r in rows:
             qid, q = r["qid"], r["query"]
-            results["dense"][qid]  = [h.doc_id for h in dense(q, limit=10)]
-            results["sparse"][qid] = [h.doc_id for h in sparse(q, limit=10)]
-            results["hybrid"][qid] = [h.doc_id for h in hybrid(q, limit=10)]
+            results["dense"][qid]  = [h.doc_id for h in dense(q, limit=30)]
+            results["sparse"][qid] = [h.doc_id for h in sparse(q, limit=30)]
+            results["hybrid"][qid] = [h.doc_id for h in hybrid(q, limit=30)]
             gold[qid] = r["gold_doc_ids"]
 
         for name, runs in results.items():
@@ -248,9 +259,11 @@ nb03 = [
         from rag_evals.retrieval.sparse import SparseRetriever
         from rag_evals.retrieval.hybrid_rrf import HybridRetriever
         from rag_evals.retrieval.reranker import CrossEncoderReranker
+        from rag_evals.index.qdrant_store import QdrantStore
 
         rows = [json.loads(l) for l in (settings.golden_dir / "retrieval.jsonl").open()][:30]
-        hybrid = HybridRetriever(DenseRetriever(), SparseRetriever(), k=60)
+        store = QdrantStore()
+        hybrid = HybridRetriever(DenseRetriever(store=store), SparseRetriever(store=store), k=60)
         rerank = CrossEncoderReranker()
 
         before, after, gold = {}, {}, {}
@@ -340,7 +353,8 @@ nb04 = [
         from rag_evals.retrieval.dense import DenseRetriever
         from rag_evals.evaluation.retrieval import recall_at_k
 
-        dense = DenseRetriever()
+        # Reuse the store opened above — embedded Qdrant locks one client per folder.
+        dense = DenseRetriever(store=store)
         recalls = []
         for r in rows[:30]:
             hits = dense(r["query"], limit=10, predicates=r["filter_predicate"])
@@ -442,7 +456,7 @@ nb07 = [
         from rag_evals.generation.models import Model
 
         # Cross-family judges for each generator
-        for gen in (Model.GPT_5_MINI, Model.CLAUDE_HAIKU_4_5, Model.GEMINI_3_FLASH):
+        for gen in (Model.GPT_5_MINI, Model.CLAUDE_HAIKU_4_5, Model.GEMINI_2_5_FLASH):
             judges = cross_family_judges(gen)
             print(f"generator={gen.value:<25}  judges={[j.value for j in judges]}")
         """
@@ -521,6 +535,154 @@ nb08 = [
 ]
 
 
+nb09 = [
+    md(
+        """
+        # 09 — Benchmark report
+
+        Visualises the chunking × embedding × LLM sweep produced by
+        `python -m rag_evals.scripts.benchmark`. The script writes
+        `report/benchmark.json`; this notebook loads it and renders the same
+        tables + a few charts.
+
+        Re-run `make benchmark` (or the script directly) to refresh the JSON.
+        """
+    ),
+    code(
+        """
+        import json, pandas as pd
+        from pathlib import Path
+        from IPython.display import Markdown, display
+        bench = json.loads(Path("../report/benchmark.json").read_text())
+        print({k: type(v).__name__ for k, v in bench.items()})
+        bench["settings"]
+        """
+    ),
+    md("## ⚠ Mock-data warning"),
+    code(
+        """
+        # If the underlying benchmark run involved mock LLMs, every LLM-derived
+        # number below (faithfulness, latency, win-rates, sample answers) is
+        # a deterministic stub or fixture replay — NOT a real model evaluation.
+        if bench.get("has_mock_data"):
+            display(Markdown(
+                "> ⚠️  **MOCK DATA — NOT A REAL EVALUATION** ⚠️\\n"
+                ">\\n"
+                f"> {bench.get('mock_warning', '')}\\n"
+                ">\\n"
+                "> Rows tagged `[MOCK]` below were produced (in whole or in part) by a mock LLM."
+            ))
+        else:
+            print("benchmark.json reports no mock data — all rows are live.")
+        """
+    ),
+    md("## Chunking sweep — embedding fixed, chunking varied"),
+    code(
+        """
+        df_chunk = pd.DataFrame(bench["chunking_sweep"])
+        if not df_chunk.empty:
+            cols = ["config", "n_chunks", "index_secs", "recall_at_10", "mrr", "ndcg_at_10", "map", "coverage"]
+            display(df_chunk[cols].set_index("config"))
+        """
+    ),
+    code(
+        """
+        import matplotlib.pyplot as plt
+        if not df_chunk.empty:
+            ax = df_chunk.set_index("config")[["recall_at_10", "mrr", "ndcg_at_10"]].plot(
+                kind="bar", figsize=(8, 4), title="Chunking sweep — retrieval metrics"
+            )
+            ax.set_ylabel("score")
+            ax.set_ylim(0, 1)
+            plt.xticks(rotation=20, ha="right")
+            plt.tight_layout()
+            plt.show()
+        """
+    ),
+    md("## Embedding sweep — chunking fixed, embedding varied"),
+    code(
+        """
+        df_emb = pd.DataFrame(bench["embedding_sweep"])
+        if not df_emb.empty:
+            cols = ["config", "n_chunks", "index_secs", "recall_at_10", "mrr", "ndcg_at_10", "map", "coverage"]
+            display(df_emb[cols].set_index("config"))
+        """
+    ),
+    code(
+        """
+        if not df_emb.empty:
+            ax = df_emb.set_index("config")[["recall_at_10", "mrr", "ndcg_at_10"]].plot(
+                kind="bar", figsize=(8, 4), title="Embedding sweep — retrieval metrics"
+            )
+            ax.set_ylabel("score")
+            ax.set_ylim(0, 1)
+            plt.xticks(rotation=20, ha="right")
+            plt.tight_layout()
+            plt.show()
+        """
+    ),
+    md("## LLM sweep — generator varies"),
+    code(
+        """
+        df_llm = pd.DataFrame(bench["llm_sweep"])
+        if not df_llm.empty:
+            # Tag mock rows so the dataframe view makes the contamination obvious.
+            if "is_mock" in df_llm.columns:
+                df_llm["model"] = df_llm.apply(
+                    lambda r: ("[MOCK] " if r.get("is_mock") else "") + r["model"], axis=1
+                )
+            display(df_llm.set_index("model"))
+            if df_llm.get("is_mock", pd.Series(dtype=bool)).any():
+                display(Markdown(
+                    "**⚠ Rows prefixed `[MOCK]` are not real evaluations — "
+                    "their faithfulness, latency, and sample answer come from "
+                    "MockBackend. Re-run with live API keys to replace.**"
+                ))
+        """
+    ),
+    code(
+        """
+        if not df_llm.empty:
+            fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+            df_llm.set_index("model")[["faithfulness_heuristic", "faithfulness_llm"]].plot(
+                kind="bar", ax=axes[0], title="Faithfulness by model"
+            )
+            axes[0].set_ylim(0, 1)
+            df_llm.set_index("model")[["avg_latency_ms", "p95_latency_ms"]].plot(
+                kind="bar", ax=axes[1], title="Latency (ms)"
+            )
+            if bench.get("has_mock_data"):
+                for ax in axes:
+                    ax.set_title(ax.get_title() + "  (⚠ contains MOCK rows)")
+            for ax in axes:
+                ax.tick_params(axis="x", rotation=20)
+            plt.tight_layout()
+            plt.show()
+        """
+    ),
+    md("## Pairwise judging (cross-family judge)"),
+    code(
+        """
+        df_pw = pd.DataFrame(bench.get("pairwise", []))
+        if not df_pw.empty:
+            if "is_mock" in df_pw.columns and df_pw["is_mock"].any():
+                df_pw = df_pw.copy()
+                df_pw["a"] = df_pw.apply(lambda r: ("[MOCK] " if r["is_mock"] else "") + r["a"], axis=1)
+                df_pw["b"] = df_pw.apply(lambda r: ("[MOCK] " if r["is_mock"] else "") + r["b"], axis=1)
+                display(df_pw)
+                display(Markdown(
+                    "**⚠ `[MOCK]`-tagged rows had at least one mock generator — "
+                    "win counts reflect a deterministic stub, not real preference.**"
+                ))
+            else:
+                display(df_pw)
+        else:
+            print("no pairwise data — re-run with live LLM keys to populate")
+        """
+    ),
+]
+
+
 def main() -> None:
     write(OUT / "00_setup_and_index.ipynb", nb00)
     write(OUT / "01_retrieval_metrics.ipynb", nb01)
@@ -531,6 +693,7 @@ def main() -> None:
     write(OUT / "06_lost_in_the_middle.ipynb", nb06)
     write(OUT / "07_llm_as_judge.ipynb", nb07)
     write(OUT / "08_full_eval_dashboard.ipynb", nb08)
+    write(OUT / "09_benchmark.ipynb", nb09)
 
 
 if __name__ == "__main__":

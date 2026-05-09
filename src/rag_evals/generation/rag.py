@@ -6,6 +6,7 @@ import re
 import time
 from collections.abc import Callable
 
+from rag_evals._mock_warning import is_mock, warn_mock_eval
 from rag_evals.generation.llm import LLM
 from rag_evals.generation.prompts import RAG_SYSTEM, rag_user_prompt
 from rag_evals.types import RAGAnswer, RetrievalHit
@@ -33,6 +34,8 @@ def run_rag(
     top_n_context: int = 5,
 ) -> RAGAnswer:
     llm = llm or LLM()
+    if is_mock(llm):
+        warn_mock_eval("generation.run_rag")
     t0 = time.perf_counter()
     hits = retrieve(query)
     if rerank is not None:

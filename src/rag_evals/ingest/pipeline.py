@@ -20,6 +20,16 @@ def _embed_dense(texts: list[str], model_name: str | None = None) -> list[list[f
     return [list(v) for v in model.embed(texts)]
 
 
+def dense_dim(model_name: str | None = None) -> int:
+    """Resolve the dimension of the dense embedding model by probing it once."""
+    from fastembed import TextEmbedding
+
+    model_name = model_name or settings.embedding_model
+    model = TextEmbedding(model_name=model_name)
+    sample = next(iter(model.embed(["dim probe"])))
+    return len(list(sample))
+
+
 def _embed_sparse(texts: list[str]) -> list[tuple[list[int], list[float]]]:
     from fastembed import SparseTextEmbedding
 
@@ -38,8 +48,9 @@ def ingest(
     target_tokens: int = 256,
     overlap_tokens: int = 32,
     batch_size: int = 64,
+    embedding_model: str | None = None,
 ) -> int:
-    store = store or QdrantStore()
+    store = store or QdrantStore(dense_dim=dense_dim(embedding_model))
     store.ensure_collection()
 
     chunks: list[Chunk] = chunk_documents(
@@ -52,7 +63,7 @@ def ingest(
     for i in tqdm(range(0, len(chunks), batch_size), desc="ingest"):
         batch = chunks[i : i + batch_size]
         texts = [c.text for c in batch]
-        dense = _embed_dense(texts)
+        dense = _embed_dense(texts, model_name=embedding_model)
         sparse = _embed_sparse(texts)
         n += store.upsert(batch, dense, sparse, batch_size=batch_size)
     return n

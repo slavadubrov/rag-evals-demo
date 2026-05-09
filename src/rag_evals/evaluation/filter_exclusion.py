@@ -75,9 +75,7 @@ def filter_false_exclusion_rate(
     n_with_gold = sum(1 for r in rows if r.reason != "no-gold")
     n_excluded = sum(1 for r in rows if r.gold_excluded)
     rate = n_excluded / n_with_gold if n_with_gold else 0.0
-    return FilterEvalResult(
-        rate=rate, n_queries=n_with_gold, n_excluded=n_excluded, rows=rows
-    )
+    return FilterEvalResult(rate=rate, n_queries=n_with_gold, n_excluded=n_excluded, rows=rows)
 
 
 def rate_against_survivors(
@@ -113,9 +111,7 @@ def rate_against_survivors(
     n_with_gold = sum(1 for r in rows if r.reason != "no-gold")
     n_excluded = sum(1 for r in rows if r.gold_excluded)
     rate = n_excluded / n_with_gold if n_with_gold else 0.0
-    return FilterEvalResult(
-        rate=rate, n_queries=n_with_gold, n_excluded=n_excluded, rows=rows
-    )
+    return FilterEvalResult(rate=rate, n_queries=n_with_gold, n_excluded=n_excluded, rows=rows)
 
 
 @dataclass
@@ -148,6 +144,4 @@ def predicate_precision_recall(
     precision = tp / (tp + fp) if (tp + fp) else 0.0
     recall = tp / (tp + fn) if (tp + fn) else 0.0
     f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
-    return PredicateClassifierMetrics(
-        precision=precision, recall=recall, f1=f1, n=len(predicted)
-    )
+    return PredicateClassifierMetrics(precision=precision, recall=recall, f1=f1, n=len(predicted))

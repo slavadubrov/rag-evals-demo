@@ -12,7 +12,8 @@ class DenseRetriever:
         from fastembed import TextEmbedding
 
         self.store = store or QdrantStore()
-        self.model = TextEmbedding(model_name=model_name or settings.embedding_model)
+        self.model_name = model_name or settings.embedding_model
+        self.model = TextEmbedding(model_name=self.model_name)
 
     def __call__(
         self, query: str, *, limit: int = 10, predicates: dict[str, object] | None = None

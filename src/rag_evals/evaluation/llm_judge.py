@@ -17,6 +17,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from rag_evals._mock_warning import is_mock, warn_mock_eval
 from rag_evals.generation.llm import LLM
 from rag_evals.generation.models import Model
 
@@ -45,8 +46,12 @@ class PairwiseResult:
     raw: str
 
 
-def g_eval(question: str, answer: str, *, criterion: str = "faithfulness", llm: LLM | None = None) -> int:
+def g_eval(
+    question: str, answer: str, *, criterion: str = "faithfulness", llm: LLM | None = None
+) -> int:
     llm = llm or LLM()
+    if is_mock(llm):
+        warn_mock_eval("llm_judge.g_eval")
     raw = llm.ask(G_EVAL_PROMPT.format(criterion=criterion, question=question, answer=answer))
     m = re.search(r"[1-5]", raw)
     return int(m.group(0)) if m else 3
@@ -61,6 +66,8 @@ def pairwise(
     llm: LLM | None = None,
 ) -> PairwiseResult:
     llm = llm or LLM()
+    if is_mock(llm):
+        warn_mock_eval("llm_judge.pairwise")
     raw = llm.ask(PAIRWISE_PROMPT.format(criterion=criterion, question=question, a=a, b=b))
     text = raw.strip().upper()
     if text.startswith("A"):
@@ -89,6 +96,8 @@ def measure_position_bias(
     A pure quality judge with no position bias should show 50% in both.
     """
     llm = llm or LLM()
+    if is_mock(llm):
+        warn_mock_eval("llm_judge.measure_position_bias")
     a_first = b_first = 0
     n = 0
     for question, a, b in pairs:
@@ -121,6 +130,8 @@ def averaged_pairwise(
 ) -> PairwiseResult:
     """Mitigation from the article: run both orderings and aggregate."""
     llm = llm or LLM()
+    if is_mock(llm):
+        warn_mock_eval("llm_judge.averaged_pairwise")
     rng = rng or random.Random(0)
     if rng.random() < 0.5:
         first, second = a, b
@@ -150,9 +161,9 @@ def cross_family_judges(generator: Model) -> list[Model]:
     rule.
     """
     if generator.value.startswith("gpt-"):
-        return [Model.CLAUDE_HAIKU_4_5, Model.GEMINI_3_FLASH]
+        return [Model.CLAUDE_HAIKU_4_5, Model.GEMINI_2_5_FLASH]
     if generator.value.startswith("claude-"):
-        return [Model.GPT_5_MINI, Model.GEMINI_3_FLASH]
+        return [Model.GPT_5_MINI, Model.GEMINI_2_5_FLASH]
     if generator.value.startswith("gemini/"):
         return [Model.GPT_5_MINI, Model.CLAUDE_HAIKU_4_5]
-    return [Model.GPT_5_MINI, Model.CLAUDE_HAIKU_4_5, Model.GEMINI_3_FLASH]
+    return [Model.GPT_5_MINI, Model.CLAUDE_HAIKU_4_5, Model.GEMINI_2_5_FLASH]

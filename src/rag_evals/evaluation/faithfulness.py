@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from rag_evals._mock_warning import is_mock, warn_mock_eval
 from rag_evals.generation.llm import LLM
 
 CLAIM_EXTRACTION_PROMPT = """Decompose the answer below into a list of atomic factual claims.
@@ -43,6 +44,8 @@ def extract_claims(answer: str, *, llm: LLM | None = None) -> list[str]:
     when ``llm`` is mock-mode and no fixture is found.
     """
     llm = llm or LLM()
+    if is_mock(llm):
+        warn_mock_eval("faithfulness.extract_claims")
     prompt = CLAIM_EXTRACTION_PROMPT.format(answer=answer)
     raw = llm.ask(prompt, system="You are an information extraction expert.")
     lines = [line.strip("-• \t") for line in raw.splitlines() if line.strip()]
@@ -65,6 +68,8 @@ class FaithfulnessResult:
 
 def llm_verify(claims: list[str], context: str, *, llm: LLM | None = None) -> list[ClaimVerdict]:
     llm = llm or LLM()
+    if is_mock(llm):
+        warn_mock_eval("faithfulness.llm_verify")
     out: list[ClaimVerdict] = []
     for claim in claims:
         verdict = llm.ask(
@@ -98,9 +103,7 @@ def faithfulness(
 ) -> FaithfulnessResult:
     claims = extract_claims(answer, llm=llm)
     verdicts = (
-        heuristic_verify(claims, context)
-        if use_heuristic
-        else llm_verify(claims, context, llm=llm)
+        heuristic_verify(claims, context) if use_heuristic else llm_verify(claims, context, llm=llm)
     )
     if not verdicts:
         return FaithfulnessResult(score=0.0, verdicts=[])

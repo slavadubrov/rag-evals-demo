@@ -63,7 +63,7 @@ Everything flows through a single `LLM` class wrapping `litellm.completion`. Mod
 class Model(StrEnum):
     GPT_5_MINI = "gpt-5-mini"
     CLAUDE_HAIKU_4_5 = "claude-haiku-4-5"
-    GEMINI_3_FLASH = "gemini/gemini-3-flash"
+    GEMINI_2_5_FLASH = "gemini/gemini-2.5-flash"
     ...
     MOCK = "mock"
 ```
