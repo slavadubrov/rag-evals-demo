@@ -36,7 +36,7 @@ GPT-4 prefers GPT-4 outputs. The bias correlates with output perplexity — judg
 def cross_family_judges(generator: Model) -> list[Model]
 ```
 
-`cross_family_judges` returns judges that are not in the same family as the generator. Notebook 07 uses this to run three judges (`GPT_5_MINI`, `CLAUDE_HAIKU_4_5`, `GEMINI_3_FLASH`) against each generator and visualises the per-judge win-rate skew.
+`cross_family_judges` returns judges that are not in the same family as the generator. Notebook 07 uses this to run three judges (`GPT_5_MINI`, `CLAUDE_HAIKU_4_5`, `GEMINI_2_5_FLASH`) against each generator and visualises the per-judge win-rate skew.
 
 ## Implementation
 

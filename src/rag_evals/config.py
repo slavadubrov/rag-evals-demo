@@ -2,13 +2,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT = Path(__file__).resolve().parents[2]
 
+# Pydantic-settings reads .env into the Settings instance, but downstream
+# tools (LiteLLM, fastembed) read provider keys directly from os.environ.
+# Mirror the file into the process environment so both paths see the same
+# values regardless of CWD.
+load_dotenv(ROOT / ".env", override=False)
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=ROOT / ".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
     # Qdrant
     # Embedded (local file) by default — set qdrant_url to use a server.
@@ -19,7 +28,7 @@ class Settings(BaseSettings):
     # LLM routing
     rag_evals_default_model: str = "gpt-5-mini"
     rag_evals_judge_model: str = "claude-haiku-4-5"
-    rag_evals_third_judge: str = "gemini/gemini-3-flash"
+    rag_evals_third_judge: str = "gemini/gemini-2.5-flash"
     rag_evals_backend: str = "auto"  # auto | live | mock
 
     # Provider keys

@@ -150,9 +150,9 @@ def cross_family_judges(generator: Model) -> list[Model]:
     rule.
     """
     if generator.value.startswith("gpt-"):
-        return [Model.CLAUDE_HAIKU_4_5, Model.GEMINI_3_FLASH]
+        return [Model.CLAUDE_HAIKU_4_5, Model.GEMINI_2_5_FLASH]
     if generator.value.startswith("claude-"):
-        return [Model.GPT_5_MINI, Model.GEMINI_3_FLASH]
+        return [Model.GPT_5_MINI, Model.GEMINI_2_5_FLASH]
     if generator.value.startswith("gemini/"):
         return [Model.GPT_5_MINI, Model.CLAUDE_HAIKU_4_5]
-    return [Model.GPT_5_MINI, Model.CLAUDE_HAIKU_4_5, Model.GEMINI_3_FLASH]
+    return [Model.GPT_5_MINI, Model.CLAUDE_HAIKU_4_5, Model.GEMINI_2_5_FLASH]

@@ -17,5 +17,5 @@ def test_cross_family_for_anthropic() -> None:
 
 
 def test_cross_family_for_gemini() -> None:
-    judges = cross_family_judges(Model.GEMINI_3_FLASH)
+    judges = cross_family_judges(Model.GEMINI_2_5_FLASH)
     assert all(not j.value.startswith("gemini/") for j in judges)

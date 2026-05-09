@@ -35,3 +35,7 @@ data/golden/*.jsonl
 
 # Qdrant local volume
 qdrant_storage/
+qdrant_bench/
+
+# Benchmark report
+report/

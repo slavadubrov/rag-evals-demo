@@ -61,7 +61,9 @@ def run_suite(
             qid = row["qid"]
             tr = latency.Tracer()
             with tr.stage("retrieve"):
-                hits = retrieve(row["query"], limit=k)
+                # Over-retrieve at the chunk level so that doc-level dedup in
+                # `evaluate_runs` still yields ≥ k unique documents per query.
+                hits = retrieve(row["query"], limit=k * 3)
             tracers.append(tr)
             runs[qid] = [h.doc_id for h in hits]
             gold[qid] = row["gold_doc_ids"]

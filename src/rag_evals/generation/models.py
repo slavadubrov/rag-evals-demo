@@ -7,7 +7,7 @@ Adding a model is one enum line. The judge notebook (07) explicitly uses
 Verified current as of May 2026:
 - gpt-5-mini, gpt-5: OpenAI
 - claude-haiku-4-5, claude-sonnet-4-6: Anthropic (Haiku 4.5 released Oct 2025)
-- gemini-3-flash, gemini-3-flash-lite: Google (current Flash tier in 2026)
+- gemini-2.5-flash, gemini-2.5-flash-lite: Google (current Flash tier)
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ class Model(StrEnum):
     GPT_5 = "gpt-5"
     CLAUDE_HAIKU_4_5 = "claude-haiku-4-5"
     CLAUDE_SONNET_4_6 = "claude-sonnet-4-6"
-    GEMINI_3_FLASH = "gemini/gemini-3-flash"
-    GEMINI_3_FLASH_LITE = "gemini/gemini-3-flash-lite"
+    GEMINI_2_5_FLASH = "gemini/gemini-2.5-flash"
+    GEMINI_2_5_FLASH_LITE = "gemini/gemini-2.5-flash-lite"
     MOCK = "mock"
 
 
