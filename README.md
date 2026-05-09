@@ -7,10 +7,14 @@ Companion demo to *Evaluating RAG: Metrics for Every Stage of a Production RAG S
 ```bash
 cp .env.example .env       # adjust keys; the suite runs offline if you skip them
 uv sync --all-extras
-make up                    # docker compose up -d qdrant
 make index                 # ingest scifact + build golden sets (~3-5 min on CPU)
 make eval                  # full suite -> report.md, exits non-zero on regressions
 ```
+
+The index lives in embedded Qdrant (a local file at `./qdrant_storage`) — no
+Docker, no daemon. To run against a Qdrant server instead, set
+`QDRANT_URL=http://localhost:6333` in `.env` and point it at your own
+deployment.
 
 ## Architecture
 
@@ -45,7 +49,7 @@ The metric coverage is intentional: every section of the article that *can* be d
 
 ## Notebooks tour
 
-- **00 — Setup and index.** Spin Qdrant, ingest scifact, sanity-check counts.
+- **00 — Setup and index.** Open the embedded Qdrant store, ingest scifact, sanity-check counts.
 - **01 — Retrieval metrics.** Dense baseline; Recall@k / MRR / nDCG sweep.
 - **02 — Hybrid + RRF.** Dense vs BM25 vs RRF, per-query deltas.
 - **03 — Reranking.** ΔnDCG and ΔPrecision@1 from the cross-encoder.

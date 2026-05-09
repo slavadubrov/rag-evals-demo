@@ -7,7 +7,7 @@ define banner
 	@printf "\n\033[1;34m▶ %s\033[0m\n" "$(1)"
 endef
 
-.PHONY: help install up down index golden eval eval-fast nb test lint fmt clean
+.PHONY: help install index golden eval eval-fast nb test lint fmt clean
 
 help:  ## Show this help.
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -16,19 +16,7 @@ install:  ## uv sync (creates .venv, installs all extras)
 	$(call banner,uv sync)
 	$(UV) sync --all-extras
 
-up:  ## docker compose up -d qdrant; wait until healthy
-	$(call banner,Qdrant up)
-	docker compose up -d qdrant
-	@for i in 1 2 3 4 5 6 7 8 9 10; do \
-		curl -sf http://localhost:6333/readyz >/dev/null && echo "Qdrant ready" && exit 0; \
-		sleep 1; \
-	done; echo "Qdrant did not become ready" && exit 1
-
-down:  ## docker compose down -v
-	$(call banner,Qdrant down)
-	docker compose down -v
-
-index:  ## Ingest scifact into Qdrant
+index:  ## Ingest scifact into the embedded Qdrant store
 	$(call banner,Seeding Qdrant index)
 	$(UV) run python -m rag_evals.scripts.seed_index
 
@@ -61,7 +49,7 @@ fmt:  ## ruff format
 	$(call banner,Format)
 	$(UV) run ruff format .
 
-clean:  ## Remove caches and artefacts
+clean:  ## Remove caches, artefacts, and the embedded Qdrant store
 	$(call banner,Clean)
-	rm -rf .venv .pytest_cache .mypy_cache .ruff_cache report.md report.json data/cache __pycache__
+	rm -rf .venv .pytest_cache .mypy_cache .ruff_cache report.md report.json data/cache qdrant_storage __pycache__
 	find . -type d -name __pycache__ -exec rm -rf {} +

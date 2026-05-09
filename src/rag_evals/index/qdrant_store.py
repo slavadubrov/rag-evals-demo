@@ -28,12 +28,26 @@ def _stable_uuid(chunk_id: str) -> str:
 
 
 class QdrantStore:
-    """Wraps a Qdrant collection with named dense + sparse vectors."""
+    """Wraps a Qdrant collection with named dense + sparse vectors.
 
-    def __init__(self, url: str | None = None, collection: str | None = None) -> None:
-        self.url = url or settings.qdrant_url
+    Defaults to embedded mode against ``settings.qdrant_path`` (a local file).
+    Pass ``url=...`` or set ``QDRANT_URL`` to use a server instead.
+    """
+
+    def __init__(
+        self,
+        url: str | None = None,
+        collection: str | None = None,
+        path: str | None = None,
+    ) -> None:
+        self.url = url if url is not None else settings.qdrant_url
         self.collection = collection or settings.qdrant_collection
-        self.client = QdrantClient(url=self.url)
+        if self.url:
+            self.path = None
+            self.client = QdrantClient(url=self.url)
+        else:
+            self.path = path or str(settings.qdrant_path)
+            self.client = QdrantClient(path=self.path)
 
     def ensure_collection(self) -> None:
         if self.client.collection_exists(self.collection):
