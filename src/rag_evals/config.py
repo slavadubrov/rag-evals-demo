@@ -11,7 +11,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # Qdrant
-    qdrant_url: str = "http://localhost:6333"
+    # Embedded (local file) by default — set qdrant_url to use a server.
+    qdrant_url: str | None = None
+    qdrant_path: Path = ROOT / "qdrant_storage"
     qdrant_collection: str = "scifact"
 
     # LLM routing
