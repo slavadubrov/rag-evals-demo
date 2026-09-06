@@ -6,10 +6,12 @@ asserts the exact numbers (Recall@5=0.750, MRR=0.625, nDCG@5=0.627).
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from math import log2
 from statistics import mean
+
+from rag_evals.evaluation.statistics import bootstrap_mean
 
 
 def _unique(ranked: Sequence[str]) -> list[str]:
@@ -26,6 +28,8 @@ def _unique(ranked: Sequence[str]) -> list[str]:
 
 
 def recall_at_k(ranked: Sequence[str], gold: Iterable[str], k: int) -> float:
+    if k <= 0:
+        return 0.0
     gold_set = set(gold)
     if not gold_set:
         return 0.0
@@ -50,12 +54,16 @@ def reciprocal_rank(ranked: Sequence[str], gold: Iterable[str]) -> float:
 
 
 def hit_rate_at_k(ranked: Sequence[str], gold: Iterable[str], k: int) -> float:
+    if k <= 0:
+        return 0.0
     gold_set = set(gold)
     return 1.0 if any(d in gold_set for d in _unique(ranked)[:k]) else 0.0
 
 
 def ndcg_at_k(ranked: Sequence[str], gold: Iterable[str], k: int) -> float:
     """Binary relevance nDCG@k."""
+    if k <= 0:
+        return 0.0
     gold_set = set(gold)
     gains = [1.0 if d in gold_set else 0.0 for d in _unique(ranked)[:k]]
     dcg = sum(g / log2(i + 2) for i, g in enumerate(gains))
@@ -88,11 +96,15 @@ class RetrievalMetrics:
     coverage: float
     k: int
     n_queries: int
+    n_attempted: int = 0
+    n_missing: int = 0
+    n_scored: int = 0
+    confidence_intervals: dict[str, tuple[float, float]] = field(default_factory=dict)
 
 
 def evaluate_runs(
-    runs: dict[str, Sequence[str]],
-    gold: dict[str, Iterable[str]],
+    runs: Mapping[str, Sequence[str]],
+    gold: Mapping[str, Iterable[str]],
     *,
     k: int = 10,
 ) -> RetrievalMetrics:
@@ -103,7 +115,13 @@ def evaluate_runs(
         Recall etc.).
     gold: qid -> iterable of relevant doc_ids
     """
-    qids = [q for q in runs if gold.get(q)]
+    if k <= 0:
+        raise ValueError("k must be positive")
+    gold = {q: tuple(ids) for q, ids in gold.items()}
+    qids = [q for q, ids in gold.items() if ids]
+    missing = sum(q not in runs for q in qids)
+    attempted = sum(q in runs for q in qids)
+    runs = {q: runs.get(q, []) for q in qids}
     if not qids:
         raise ValueError("No queries with gold")
     recalls = [recall_at_k(runs[q], gold[q], k) for q in qids]
@@ -127,4 +145,8 @@ def evaluate_runs(
         coverage=coverage,
         k=k,
         n_queries=len(qids),
+        n_attempted=attempted,
+        n_missing=missing,
+        n_scored=len(qids),
+        confidence_intervals={"recall_at_k": bootstrap_mean(recalls), "mrr": bootstrap_mean(rrs)},
     )

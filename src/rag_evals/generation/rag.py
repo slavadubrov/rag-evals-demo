@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from collections.abc import Callable
 
 from rag_evals._mock_warning import is_mock, warn_mock_eval
+from rag_evals.evaluation.schemas import StrictModel
 from rag_evals.generation.llm import LLM
 from rag_evals.generation.prompts import RAG_SYSTEM, rag_user_prompt
 from rag_evals.types import RAGAnswer, RetrievalHit
@@ -24,6 +26,13 @@ def extract_citations(answer: str) -> list[str]:
     return list(seen)
 
 
+class GroundedAnswer(StrictModel):
+    evidence_observations: list[str]
+    abstain: bool
+    answer: str
+    cited_doc_ids: list[str]
+
+
 def run_rag(
     qid: str,
     query: str,
@@ -32,7 +41,10 @@ def run_rag(
     rerank: Callable[[str, list[RetrievalHit]], list[RetrievalHit]] | None = None,
     llm: LLM | None = None,
     top_n_context: int = 5,
+    sgr: bool = False,
 ) -> RAGAnswer:
+    if top_n_context <= 0:
+        raise ValueError("top_n_context must be positive")
     llm = llm or LLM()
     if is_mock(llm):
         warn_mock_eval("generation.run_rag")
@@ -42,7 +54,24 @@ def run_rag(
         hits = rerank(query, hits)
     context = hits[:top_n_context]
     prompt = rag_user_prompt(query, context)
-    answer = llm.ask(prompt, system=RAG_SYSTEM)
+    if sgr:
+        result = llm.structured(
+            json.dumps(
+                {
+                    "question_and_context": prompt,
+                    "task": "Record concise evidence observations, then answer with bracketed citations. Abstain on missing or conflicting evidence.",
+                }
+            ),
+            GroundedAnswer,
+            system=RAG_SYSTEM,
+        )
+        if not set(result.cited_doc_ids) <= {h.doc_id for h in context}:
+            raise ValueError("SGR cited an unknown context ID")
+        answer = "I don't know." if result.abstain else result.answer
+        if not result.abstain and set(extract_citations(answer)) != set(result.cited_doc_ids):
+            raise ValueError("SGR citation fields disagree with answer")
+    else:
+        answer = llm.ask(prompt, system=RAG_SYSTEM)
     return RAGAnswer(
         qid=qid,
         answer=answer,

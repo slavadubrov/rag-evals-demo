@@ -16,7 +16,7 @@ class SparseRetriever:
     def __call__(
         self, query: str, *, limit: int = 10, predicates: dict[str, object] | None = None
     ) -> list[RetrievalHit]:
-        vec = next(iter(self.model.embed([query])))
+        vec = next(iter(self.model.query_embed(query)))
         idx = list(map(int, vec.indices))
         vals = list(map(float, vec.values))
         return self.store.search_sparse(idx, vals, limit=limit, predicates=predicates)

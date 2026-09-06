@@ -41,7 +41,9 @@ class QdrantStore:
         path: str | None = None,
         dense_dim: int = DENSE_DIM,
     ) -> None:
-        self.url = url if url is not None else settings.qdrant_url
+        if url and path:
+            raise ValueError("Choose url or path, not both")
+        self.url = url if url is not None else (None if path else settings.qdrant_url)
         self.collection = collection or settings.qdrant_collection
         self.dense_dim = dense_dim
         if self.url:
@@ -53,6 +55,20 @@ class QdrantStore:
 
     def ensure_collection(self) -> None:
         if self.client.collection_exists(self.collection):
+            params = self.client.get_collection(self.collection).config.params
+            vectors = params.vectors
+            if not isinstance(vectors, dict) or (
+                DENSE_VECTOR_NAME not in vectors
+                or vectors[DENSE_VECTOR_NAME].size != self.dense_dim
+                or vectors[DENSE_VECTOR_NAME].distance != qm.Distance.COSINE
+            ):
+                raise ValueError("Dense dimension mismatch; rebuild the index")
+            sparse = params.sparse_vectors or {}
+            if (
+                SPARSE_VECTOR_NAME not in sparse
+                or sparse[SPARSE_VECTOR_NAME].modifier != qm.Modifier.IDF
+            ):
+                raise ValueError("BM25 index needs IDF; rebuild the index")
             return
         self.client.create_collection(
             collection_name=self.collection,
@@ -62,7 +78,7 @@ class QdrantStore:
                 ),
             },
             sparse_vectors_config={
-                SPARSE_VECTOR_NAME: qm.SparseVectorParams(),
+                SPARSE_VECTOR_NAME: qm.SparseVectorParams(modifier=qm.Modifier.IDF),
             },
         )
 
@@ -73,14 +89,16 @@ class QdrantStore:
         sparse_vectors: Iterable[tuple[list[int], list[float]]],
         batch_size: int = 64,
     ) -> int:
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive")
         points: list[qm.PointStruct] = []
         n = 0
         for chunk, dense, (idx, vals) in zip(chunks, dense_vectors, sparse_vectors, strict=True):
             payload = {
+                **chunk.metadata,
                 "doc_id": chunk.doc_id,
                 "chunk_id": chunk.chunk_id,
                 "text": chunk.text,
-                **chunk.metadata,
             }
             points.append(
                 qm.PointStruct(
@@ -104,10 +122,15 @@ class QdrantStore:
     def _build_filter(self, predicates: dict[str, object] | None) -> qm.Filter | None:
         if not predicates:
             return None
-        must = [
-            qm.FieldCondition(key=k, match=qm.MatchValue(value=v)) for k, v in predicates.items()
-        ]
-        return qm.Filter(must=must)
+        if any(not isinstance(v, (str, int, bool)) for v in predicates.values()):
+            raise ValueError("Only exact string, integer and boolean filters are supported")
+        return qm.Filter(
+            must=[
+                qm.FieldCondition(key=k, match=qm.MatchValue(value=v))
+                for k, v in predicates.items()
+                if isinstance(v, (str, int, bool))
+            ]
+        )
 
     def search_dense(
         self,
@@ -167,6 +190,15 @@ class QdrantStore:
                     out.add(p.payload["doc_id"])
             if offset is None:
                 return out
+
+    def close(self) -> None:
+        self.client.close()
+
+    def __enter__(self) -> QdrantStore:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
 
     def count(self) -> int:
         return self.client.count(self.collection).count

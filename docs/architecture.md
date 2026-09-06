@@ -1,67 +1,35 @@
 # Architecture
 
-`rag-evals` makes every metric in the *Evaluating RAG* article runnable on a real corpus. Production code lives in `src/rag_evals/`. Notebooks under `notebooks/` import from `src/` and visualise the results — no metric logic is duplicated inside a notebook.
+The project keeps six boundaries: data, ingestion, storage, retrieval, generation,
+and evaluation. Each has a concrete responsibility; orchestration lives in runners.
 
-## Three layers
+1. `data/scifact.py` loads pinned corpus/qrels revisions and writes complete cache files.
+2. `ingest/pipeline.py` builds bounded chunks and initializes dense/sparse embedders once per ingest. A nonempty index is rejected to prevent stale points.
+3. `index/qdrant_store.py` owns named vectors, cosine/IDF validation, filtering and explicit closure. It supports local and server Qdrant.
+4. `retrieval/` embeds queries, fuses unique document ranks and optionally reranks. RRF retains one representative chunk per document; multi-passage aggregation is a separate design choice.
+5. `generation/llm.py` is the only paid-call boundary. OpenAI JSON Schema constrains structured output; Pydantic and evidence checks validate it. There is no live-to-mock fallback after a failed call.
+6. `evaluation/` defines denominators, nullable results and evidence. `runner.py` assembles suites; `provenance.py` writes Markdown/JSON via temporary files.
 
-The article splits evaluation into three layers, each one catching a different class of failure:
+The fixed-context generation fixture isolates generation and judging. SciFact
+retrieval uses real relevance labels. Neither population is silently substituted
+for the other. The all-suite includes both but does not pretend to provide an
+end-to-end human-reviewed SciFact answer benchmark.
 
-- **Offline.** *Was the knowledge base prepared correctly?* Parsing, cleaning, chunking, embedding, indexing.
-- **Online.** *Was the right evidence found and used for this query?* Query rewriting, retrieval, reranking, context assembly.
-- **Post-generation.** *Is the answer faithful and verifiable?* Faithfulness, citation accuracy, drift, telemetry.
+Use direct dependency injection: pass a retriever callable, reranker or LLM object.
+Tests substitute these boundaries rather than invoking paid services. A new metric
+needs a result contract and denominator, not a registry or framework.
 
-![Three layers of the system](assets/architecture.svg)
+SGR contracts are in `evaluation/schemas.py`; the answer contract is in
+`generation/rag.py`. Schema validity is distinct from truth. Judges retain invalid
+status and coverage. Pointwise ratings are ordinal 1–5 rubrics; support is a strict
+enum with an exact evidence quote. Abstention is measured separately.
 
-Each layer maps onto a directory under `src/rag_evals/`:
+`compare_rerankers` materializes candidate pools once. `retrieve_iteratively`
+uses explicit reformulations with call, elapsed-time and character budgets; the
+backend must bound each individual request. Model-generated expansion would also
+need the existing LLM completion-token and call budgets.
 
-| Layer            | Code                                                    | Notebooks |
-| ---------------- | ------------------------------------------------------- | --------- |
-| Offline          | `data/`, `ingest/`, `index/`                            | 00        |
-| Online           | `retrieval/`, `generation/rag.py`                       | 01–04     |
-| Post-generation  | `evaluation/faithfulness.py`, `evaluation/llm_judge.py` | 05–07     |
-| Cross-cutting    | `evaluation/retrieval.py`, `evaluation/filter_exclusion.py`, `evaluation/latency.py` | 04, 08    |
-
-## Single-query trace
-
-What `make eval` actually does for one query in the golden set:
-
-![Single-query trace through the eval suite](assets/trace.svg)
-
-Equivalent in words:
-
-1. `make eval` calls `runner.run_suite()`.
-2. For each row in `golden/retrieval.jsonl`, the `HybridRetriever` runs a dense query (bge-small) and a BM25 query against Qdrant, then fuses them with reciprocal rank fusion (k = 60).
-3. The result feeds three evaluators: `retrieval.evaluate_runs`, `latency.summarise`, and `filter_exclusion.rate_against_survivors`.
-4. `runner._check_gates` compares each metric against the matching `THRESHOLD_*` in `.env` and writes `report.md` / `report.json`. If any gate fails, the process exits non-zero.
-
-## Qdrant collection
-
-One collection (`scifact` by default) with two named vectors per point:
-
-- `dense`: 384-dim, cosine — `BAAI/bge-small-en-v1.5`.
-- `sparse`: BM25 sparse vectors — FastEmbed's `Qdrant/bm25`.
-
-The payload keeps the doc id, chunk id, raw text, and synthesized `tenant`/`locale`/`domain`. That metadata is what powers notebook 04 (filter false-exclusion) without needing a parallel index.
-
-## LLM routing
-
-Everything flows through a single `LLM` class wrapping `litellm.completion`. Model selection lives in the `Model` enum at `src/rag_evals/generation/models.py`:
-
-```python
-class Model(StrEnum):
-    GPT_5_MINI = "gpt-5-mini"
-    CLAUDE_HAIKU_4_5 = "claude-haiku-4-5"
-    GEMINI_2_5_FLASH = "gemini/gemini-2.5-flash"
-    ...
-    MOCK = "mock"
-```
-
-The judge notebook picks judges from a *different family* than the generator (`cross_family_judges`), since the article's "never use a model to judge itself" rule is the single biggest source of LLM-judge bias.
-
-When `RAG_EVALS_BACKEND=auto` and the relevant API key is missing, the `LLM` falls back to `MockBackend`, a SHA1-keyed deterministic stub. The whole notebook tour runs offline.
-
-## Why this layout
-
-- **One module per metric family.** `evaluation/retrieval.py`, `evaluation/filter_exclusion.py`, `evaluation/faithfulness.py`, and so on. Each is independently importable from a notebook in two lines, and each has a `tests/` mirror.
-- **Notebooks are thin.** They import, run, and visualise. A reader can lift any metric into their own pipeline by importing the same module.
-- **`runner.py` is the CI surface.** One command writes `report.md` and exits non-zero on threshold violations. Drop it into a GitHub Action without modification.
+Limits: embedded Qdrant has a single-process lock; use explicit `with` ownership.
+Character-based chunks approximate token size. Local synthetic QA is a contract
+fixture, not a representative domain benchmark. Same-provider judgments need
+independent human calibration. Cost is unpriced and no TTFT is measured.

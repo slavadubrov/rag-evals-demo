@@ -17,6 +17,7 @@ Two metric flavours live here:
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
@@ -55,11 +56,17 @@ def filter_false_exclusion_rate(
     """
     rows: list[FilterEvalRow] = []
     for q in queries:
-        gold = list(q.get("gold_doc_ids") or [])
+        if q.get("authorization_predicate") and "eligible_gold_doc_ids" not in q:
+            raise ValueError("Authorization requires explicit eligible gold")
+        gold = list(q.get("eligible_gold_doc_ids", q.get("gold_doc_ids")) or [])
         if not gold:
             rows.append(FilterEvalRow(qid=q["qid"], gold_excluded=False, reason="no-gold"))
             continue
         predicate = q.get("filter_predicate") or {}
+        authorization = q.get("authorization_predicate") or {}
+        if set(predicate) & set(authorization):
+            raise ValueError("Search predicates must not override authorization")
+        predicate = {**predicate, **authorization}
         # `survives` takes the gold doc payload-shaped dict; here we
         # interpret 'meta' as just the doc_id wrapped — the real Qdrant
         # path uses survivor_ids. See ``rate_against_survivors`` below.
@@ -89,14 +96,20 @@ def rate_against_survivors(
     ``lambda p: store.survivor_ids(p)`` for a real Qdrant collection.
     """
     rows: list[FilterEvalRow] = []
-    cache: dict[tuple, set[str]] = {}
+    cache: dict[str, set[str]] = {}
     for q in queries:
-        gold = set(q.get("gold_doc_ids") or [])
+        if q.get("authorization_predicate") and "eligible_gold_doc_ids" not in q:
+            raise ValueError("Authorization requires explicit eligible gold")
+        gold = set(q.get("eligible_gold_doc_ids", q.get("gold_doc_ids")) or [])
         if not gold:
             rows.append(FilterEvalRow(qid=q["qid"], gold_excluded=False, reason="no-gold"))
             continue
         predicate = q.get("filter_predicate") or {}
-        key = tuple(sorted(predicate.items()))
+        authorization = q.get("authorization_predicate") or {}
+        if set(predicate) & set(authorization):
+            raise ValueError("Search predicates must not override authorization")
+        predicate = {**predicate, **authorization}
+        key = json.dumps(predicate, sort_keys=True)
         if key not in cache:
             cache[key] = survivors_for(predicate)
         survivors = cache[key]

@@ -2,7 +2,7 @@
 
 A small ``Tracer`` context manager records per-stage durations. Aggregations
 emit p50/p95/p99. Cost tracking accepts a token-count callback so users
-can plug in litellm's cost calculator when running live.
+can apply a separately verified price table when running live.
 """
 
 from __future__ import annotations

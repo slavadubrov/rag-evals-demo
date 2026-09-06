@@ -17,29 +17,35 @@ from rag_evals.types import Document, Query
 CORPUS_REPO = "BeIR/scifact"
 QUERIES_REPO = "BeIR/scifact"
 QRELS_REPO = "BeIR/scifact-qrels"
+CORPUS_REVISION = "b3b5335604bf5ee3c4447671af975ea25143d4f5"
+QRELS_REVISION = "2938d17dc3b09882fdb8c12bbbe2e2dc0e75a029"
 
 
 def _cache_path(name: str) -> Path:
     settings.cache_dir.mkdir(parents=True, exist_ok=True)
-    return settings.cache_dir / f"scifact-{name}.jsonl"
+    revision = QRELS_REVISION if name == "qrels" else CORPUS_REVISION
+    return settings.cache_dir / f"scifact-{revision}-{name}.jsonl"
 
 
 def _download() -> None:
     from datasets import load_dataset  # local import to avoid cold pyproject hit
 
-    corpus = load_dataset(CORPUS_REPO, "corpus", split="corpus")
-    queries = load_dataset(QUERIES_REPO, "queries", split="queries")
-    qrels = load_dataset(QRELS_REPO, split="test")
+    corpus = load_dataset(CORPUS_REPO, "corpus", split="corpus", revision=CORPUS_REVISION)
+    queries = load_dataset(QUERIES_REPO, "queries", split="queries", revision=CORPUS_REVISION)
+    qrels = load_dataset(QRELS_REPO, split="test", revision=QRELS_REVISION)
 
-    with _cache_path("corpus").open("w") as f:
+    with _cache_path("corpus").with_suffix(".tmp").open("w") as f:
         for row in corpus:
             f.write(json.dumps(row) + "\n")
-    with _cache_path("queries").open("w") as f:
+    with _cache_path("queries").with_suffix(".tmp").open("w") as f:
         for row in queries:
             f.write(json.dumps(row) + "\n")
-    with _cache_path("qrels").open("w") as f:
+    with _cache_path("qrels").with_suffix(".tmp").open("w") as f:
         for row in qrels:
             f.write(json.dumps(row) + "\n")
+
+    for name in ("corpus", "queries", "qrels"):
+        _cache_path(name).with_suffix(".tmp").replace(_cache_path(name))
 
 
 def _ensure_cached() -> None:

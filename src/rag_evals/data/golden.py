@@ -3,8 +3,7 @@
 - ``retrieval.jsonl``: {qid, query, gold_doc_ids}
 - ``filter_aware.jsonl``: {qid, query, gold_doc_ids, filter_predicate} where
   ``filter_predicate`` is a serialized dict, e.g. {"tenant": "acme"}.
-- ``generation.jsonl``: {qid, query, gold_doc_ids, gold_answer}; gold_answer
-  is derived from the highest-relevance scifact doc text (truncated).
+- ``generation.jsonl``: {qid, query, gold_doc_ids, evidence_excerpt}; excerpts are not reference answers.
 """
 
 from __future__ import annotations
@@ -43,16 +42,15 @@ def build_filter_aware(seed: int = 7) -> Path:
     rng = random.Random(seed)
     out = settings.golden_dir / "filter_aware.jsonl"
     options = {
-        "tenant": ["acme", "globex", "initech"],
         "locale": ["en-US", "en-GB", "de-DE"],
         "domain": ["biomed", "clinical", "public-health"],
     }
     rows: list[dict] = []
     for q in scifact.test_queries():
-        gold = next(iter(q.gold_doc_ids))
+        gold = sorted(q.gold_doc_ids)[0]
         meta = synthesize(gold)
         # Pick the predicate field (rotates) and apply truth or corruption.
-        field = rng.choice(["tenant", "locale", "domain"])
+        field = rng.choice(["locale", "domain"])
         if rng.random() < 0.3:  # 30% deliberately corrupted predicates
             wrong = [v for v in options[field] if v != meta[field]]
             value = rng.choice(wrong)
@@ -67,6 +65,10 @@ def build_filter_aware(seed: int = 7) -> Path:
                 "gold_doc_ids": sorted(q.gold_doc_ids),
                 "filter_predicate": {field: value},
                 "corrupted": corrupted,
+                "authorization_predicate": {"tenant": meta["tenant"]},
+                "eligible_gold_doc_ids": [
+                    d for d in sorted(q.gold_doc_ids) if synthesize(d)["tenant"] == meta["tenant"]
+                ],
             }
         )
     _write_jsonl(out, rows)
@@ -74,14 +76,14 @@ def build_filter_aware(seed: int = 7) -> Path:
 
 
 def build_generation(limit: int = 50) -> Path:
-    """Small generation eval set. Gold answer = first 200 chars of the gold doc."""
+    """SciFact evidence excerpts, NOT reviewed QA answers."""
     out = settings.golden_dir / "generation.jsonl"
     docs_by_id = {d.doc_id: d for d in scifact.documents()}
     rows: list[dict] = []
     for q in scifact.test_queries():
         if len(rows) >= limit:
             break
-        gold_id = next(iter(q.gold_doc_ids))
+        gold_id = sorted(q.gold_doc_ids)[0]
         if gold_id not in docs_by_id:
             continue
         rows.append(
@@ -89,7 +91,8 @@ def build_generation(limit: int = 50) -> Path:
                 "qid": q.qid,
                 "query": q.text,
                 "gold_doc_ids": sorted(q.gold_doc_ids),
-                "gold_answer": docs_by_id[gold_id].text[:200],
+                "evidence_excerpt": docs_by_id[gold_id].text,
+                "reference_status": "unreviewed_evidence_not_answer",
             }
         )
     _write_jsonl(out, rows)

@@ -13,10 +13,6 @@ from itertools import pairwise
 from rag_evals.types import Chunk, Document
 
 
-def _approx_token_count(text: str) -> int:
-    return max(1, len(text) // 4)  # 4 chars/token rule of thumb
-
-
 def recursive_split(
     text: str,
     *,
@@ -30,42 +26,28 @@ def recursive_split(
     order, splits the longest pieces, then merges adjacent fragments back
     up to ``target_tokens``.
     """
-    target_chars = target_tokens * 4
-    overlap_chars = overlap_tokens * 4
-
-    if _approx_token_count(text) <= target_tokens:
-        return [text]
-
-    # 1. split on the highest-priority separator that exists in the text
-    for sep in separators:
-        if sep in text:
-            parts = text.split(sep)
-            break
-    else:
-        parts = [text]
-
-    # 2. greedily merge into chunks <= target
+    if target_tokens <= 0 or not 0 <= overlap_tokens < target_tokens:
+        raise ValueError("Require target_tokens > 0 and 0 <= overlap_tokens < target_tokens")
+    if any(not sep for sep in separators):
+        raise ValueError("Separators must be nonempty")
+    # ponytail: character budget approximates tokens; use a tokenizer for hard model limits.
+    target_chars, overlap_chars = target_tokens * 4, overlap_tokens * 4
     chunks: list[str] = []
-    buf: list[str] = []
-    buf_chars = 0
-    for part in parts:
-        part_chars = len(part)
-        if buf_chars + part_chars > target_chars and buf:
-            chunks.append(sep.join(buf))
-            tail_chars = 0
-            tail: list[str] = []
-            for piece in reversed(buf):
-                tail.insert(0, piece)
-                tail_chars += len(piece)
-                if tail_chars >= overlap_chars:
+    start = 0
+    while start < len(text):
+        end = min(start + target_chars, len(text))
+        if end < len(text):
+            for sep in separators:
+                cut = text.rfind(sep, start + max(overlap_chars + 1, target_chars // 2), end)
+                if cut >= 0:
+                    end = cut + len(sep)
                     break
-            buf = tail[:]
-            buf_chars = sum(len(p) for p in buf)
-        buf.append(part)
-        buf_chars += part_chars
-    if buf:
-        chunks.append(sep.join(buf))
-    return [c.strip() for c in chunks if c.strip()]
+        if piece := text[start:end].strip():
+            chunks.append(piece)
+        if end == len(text):
+            break
+        start = end - overlap_chars
+    return chunks
 
 
 _HEADING_RE = re.compile(r"(?m)^(#{1,6}\s+.+|[A-Z][A-Z0-9 \-]{4,}$)")
@@ -75,17 +57,19 @@ def structural_split(text: str, target_tokens: int = 256) -> list[str]:
     """Split on Markdown headings and ALL-CAPS lines, then recurse if a
     section is larger than ``target_tokens``.
     """
+    if target_tokens <= 0:
+        raise ValueError("target_tokens must be positive")
     boundaries = [m.start() for m in _HEADING_RE.finditer(text)]
     if not boundaries:
-        return recursive_split(text, target_tokens=target_tokens)
-    boundaries.append(len(text))
+        return recursive_split(text, target_tokens=target_tokens, overlap_tokens=0)
+    boundaries = sorted({0, *boundaries, len(text)})
     sections = [text[a:b].strip() for a, b in pairwise(boundaries)]
     out: list[str] = []
     for section in sections:
         if not section:
             continue
-        if _approx_token_count(section) > target_tokens:
-            out.extend(recursive_split(section, target_tokens=target_tokens))
+        if len(section) > 4 * target_tokens:
+            out.extend(recursive_split(section, target_tokens=target_tokens, overlap_tokens=0))
         else:
             out.append(section)
     return out
@@ -98,14 +82,17 @@ def chunk_documents(
     target_tokens: int = 256,
     overlap_tokens: int = 32,
 ) -> list[Chunk]:
-    splitter = recursive_split if strategy == "recursive" else structural_split
+    if strategy not in {"recursive", "structural"}:
+        raise ValueError(f"Unknown chunk strategy: {strategy}")
     out: list[Chunk] = []
     for doc in docs:
         text = (doc.title + "\n\n" + doc.text).strip() if doc.title else doc.text
         if strategy == "recursive":
-            pieces = splitter(text, target_tokens=target_tokens, overlap_tokens=overlap_tokens)
+            pieces = recursive_split(
+                text, target_tokens=target_tokens, overlap_tokens=overlap_tokens
+            )
         else:
-            pieces = splitter(text, target_tokens=target_tokens)
+            pieces = structural_split(text, target_tokens=target_tokens)
         for i, piece in enumerate(pieces):
             out.append(
                 Chunk(
