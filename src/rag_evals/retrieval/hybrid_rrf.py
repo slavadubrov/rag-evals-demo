@@ -21,9 +21,11 @@ def reciprocal_rank_fusion(
     rankings: Sequence[Sequence[str]], *, k: int = DEFAULT_K
 ) -> list[tuple[str, float]]:
     """Fuse N rank lists by RRF. Returns (doc_id, score) sorted desc."""
+    if k < 0:
+        raise ValueError("RRF k must be nonnegative")
     scores: dict[str, float] = defaultdict(float)
     for ranking in rankings:
-        for rank, doc in enumerate(ranking, start=1):
+        for rank, doc in enumerate(dict.fromkeys(ranking), start=1):
             scores[doc] += 1.0 / (k + rank)
     return sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
 
@@ -36,10 +38,14 @@ def fuse_hits(
 ) -> list[RetrievalHit]:
     """Same as ``reciprocal_rank_fusion`` but operates on RetrievalHit
     sequences and returns RetrievalHit (with the fused RRF score)."""
+    if k < 0 or (limit is not None and limit < 0):
+        raise ValueError("k and limit must be nonnegative")
     rrf_scores: dict[str, float] = defaultdict(float)
     representative: dict[str, RetrievalHit] = {}
     for ranking in rankings:
-        for rank, hit in enumerate(ranking, start=1):
+        unique = {h.doc_id: h for h in reversed(ranking)}
+        ordered = [unique[d] for d in dict.fromkeys(h.doc_id for h in ranking)]
+        for rank, hit in enumerate(ordered, start=1):
             rrf_scores[hit.doc_id] += 1.0 / (k + rank)
             representative.setdefault(hit.doc_id, hit)
     fused = sorted(rrf_scores.items(), key=lambda kv: kv[1], reverse=True)

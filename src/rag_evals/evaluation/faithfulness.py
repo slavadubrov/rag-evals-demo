@@ -1,111 +1,107 @@
-"""Faithfulness — RAGAS-style decomposition into atomic claims, then
-per-claim verification against the retrieved context.
-
-Two backends:
-- ``llm_verify``: uses the configured LLM (live or mock) to judge each claim.
-- ``nli_verify``: uses a local cross-encoder NLI model. Cheap, deterministic.
-
-The harness layout follows the article's code block: extract -> verify ->
-aggregate. The aggregation is just (supported / total). When a claim is
-unsupported we keep it in the output so the per-row breakdown is visible.
-"""
+"""Atomic claim support, with explicit invalid/no-claim states and an offline proxy."""
 
 from __future__ import annotations
 
+import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from rag_evals._mock_warning import is_mock, warn_mock_eval
+from rag_evals.evaluation.schemas import JUDGE_SYSTEM, Claims, Support
 from rag_evals.generation.llm import LLM
-
-CLAIM_EXTRACTION_PROMPT = """Decompose the answer below into a list of atomic factual claims.
-Output one claim per line, no numbering, no extra text.
-
-Answer:
-{answer}"""
-
-CLAIM_VERIFICATION_PROMPT = """Given the context below, decide whether the claim is supported.
-Respond with exactly one word: SUPPORTED or NOT_SUPPORTED.
-
-Context:
-{context}
-
-Claim:
-{claim}"""
 
 
 def _split_sentences(text: str) -> list[str]:
-    parts = re.split(r"(?<=[.!?])\s+", text.strip())
-    return [p.strip() for p in parts if p.strip()]
+    if re.fullmatch(r"\s*(I don['\u2019]t know|insufficient evidence)[.!]?\s*", text, re.I):
+        return []
+    return [p.strip() for p in re.split(r"(?<=[.!?])\s+", text.strip()) if p.strip()]
 
 
 def extract_claims(answer: str, *, llm: LLM | None = None) -> list[str]:
-    """Decompose ``answer`` into atomic claims. Falls back to sentence split
-    when ``llm`` is mock-mode and no fixture is found.
-    """
     llm = llm or LLM()
-    if is_mock(llm):
-        warn_mock_eval("faithfulness.extract_claims")
-    prompt = CLAIM_EXTRACTION_PROMPT.format(answer=answer)
-    raw = llm.ask(prompt, system="You are an information extraction expert.")
-    lines = [line.strip("-• \t") for line in raw.splitlines() if line.strip()]
-    if not lines or lines[0].startswith("[mock:"):
+    if llm.mode == "mock":
         return _split_sentences(answer)
-    return lines
+    result = llm.structured(
+        json.dumps(
+            {
+                "task": "Extract atomic factual claims. An abstention has no claims.",
+                "answer": answer,
+            }
+        ),
+        Claims,
+        system=JUDGE_SYSTEM,
+    )
+    if any(not c.strip() for c in result.claims):
+        raise ValueError("Empty atomic claim")
+    return result.claims
 
 
 @dataclass
 class ClaimVerdict:
     claim: str
-    supported: bool
+    supported: bool | None
+    evidence_quote: str = ""
+    explanation: str = ""
+    status: str = "ok"
 
 
 @dataclass
 class FaithfulnessResult:
-    score: float
+    score: float | None
     verdicts: list[ClaimVerdict]
+    status: str = "ok"
+    n_invalid: int = 0
+    method: str = "sgr"
+    errors: list[str] = field(default_factory=list)
 
 
 def llm_verify(claims: list[str], context: str, *, llm: LLM | None = None) -> list[ClaimVerdict]:
     llm = llm or LLM()
-    if is_mock(llm):
-        warn_mock_eval("faithfulness.llm_verify")
-    out: list[ClaimVerdict] = []
+    out = []
     for claim in claims:
-        verdict = llm.ask(
-            CLAIM_VERIFICATION_PROMPT.format(context=context, claim=claim),
-            system="You are a careful fact-checker.",
-        )
-        supported = "SUPPORTED" in verdict.upper() and "NOT_SUPPORTED" not in verdict.upper()
-        out.append(ClaimVerdict(claim=claim, supported=supported))
+        try:
+            result = llm.structured(
+                json.dumps(
+                    {
+                        "task": "Does context entail the claim? For SUPPORTED quote exact supporting text; otherwise quote may be empty.",
+                        "context": context,
+                        "claim": claim,
+                    }
+                ),
+                Support,
+                system=JUDGE_SYSTEM,
+            )
+            supported = result.verdict == "SUPPORTED"
+            if supported and (not result.evidence_quote or result.evidence_quote not in context):
+                raise ValueError("Supporting quote is absent from context")
+            out.append(ClaimVerdict(claim, supported, result.evidence_quote, result.explanation))
+        except Exception as exc:
+            out.append(ClaimVerdict(claim, None, status="invalid", explanation=type(exc).__name__))
     return out
 
 
 def heuristic_verify(claims: list[str], context: str) -> list[ClaimVerdict]:
-    """Deterministic fallback used by tests and offline notebooks: a claim
-    is 'supported' if all of its content words (>3 chars) appear in context.
-    """
-    ctx = context.lower()
-    out: list[ClaimVerdict] = []
+    """Lexical diagnostic only: ignores negation, relations and semantic entailment."""
+    ctx = set(re.findall(r"[a-z]+", context.lower()))
+    out = []
     for claim in claims:
-        words = [w.lower() for w in re.findall(r"[A-Za-z]+", claim) if len(w) > 3]
-        ok = bool(words) and all(w in ctx for w in words)
-        out.append(ClaimVerdict(claim=claim, supported=ok))
+        words = {w for w in re.findall(r"[a-z]+", claim.lower()) if len(w) > 3}
+        out.append(ClaimVerdict(claim, bool(words) and words <= ctx))
     return out
 
 
 def faithfulness(
-    answer: str,
-    context: str,
-    *,
-    llm: LLM | None = None,
-    use_heuristic: bool = False,
+    answer: str, context: str, *, llm: LLM | None = None, use_heuristic: bool = False
 ) -> FaithfulnessResult:
-    claims = extract_claims(answer, llm=llm)
+    method = "lexical_proxy" if use_heuristic else "sgr"
+    try:
+        claims = _split_sentences(answer) if use_heuristic else extract_claims(answer, llm=llm)
+    except Exception as exc:
+        return FaithfulnessResult(None, [], "invalid", 1, method, [type(exc).__name__])
+    if not claims:
+        return FaithfulnessResult(None, [], "not_applicable", method=method)
     verdicts = (
         heuristic_verify(claims, context) if use_heuristic else llm_verify(claims, context, llm=llm)
     )
-    if not verdicts:
-        return FaithfulnessResult(score=0.0, verdicts=[])
-    score = sum(1 for v in verdicts if v.supported) / len(verdicts)
-    return FaithfulnessResult(score=score, verdicts=verdicts)
+    invalid = sum(v.supported is None for v in verdicts)
+    score = None if invalid else sum(v.supported is True for v in verdicts) / len(verdicts)
+    return FaithfulnessResult(score, verdicts, "invalid" if invalid else "ok", invalid, method)

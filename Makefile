@@ -39,20 +39,20 @@ benchmark:  ## Sweep chunking × embedding × LLM, write report/benchmark.{md,js
 
 nb:  ## Execute all notebooks (uses MockBackend)
 	$(call banner,Notebook execution)
-	RAG_EVALS_BACKEND=mock $(UV) run jupyter nbconvert --to notebook --execute --inplace notebooks/*.ipynb
+	RAG_EVALS_BACKEND=mock $(UV) run python -m jupyter nbconvert --to notebook --execute --inplace notebooks/*.ipynb
 
 test:  ## pytest
 	$(call banner,Tests)
-	$(UV) run pytest
+	$(UV) run python -m pytest
 
 lint:  ## ruff + mypy
 	$(call banner,Lint)
-	$(UV) run ruff check .
-	$(UV) run mypy src
+	$(UV) run python -m ruff check .
+	$(UV) run python -m mypy src
 
 fmt:  ## ruff format
 	$(call banner,Format)
-	$(UV) run ruff format .
+	$(UV) run python -m ruff format .
 
 clean:  ## Remove caches, artefacts, and the embedded Qdrant store
 	$(call banner,Clean)

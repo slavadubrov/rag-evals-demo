@@ -56,7 +56,7 @@
   <g>
     <rect class="box gen" x="710" y="60" width="170" height="56"/>
     <text class="lbl" x="795" y="84" text-anchor="middle">generate</text>
-    <text class="sub" x="795" y="102" text-anchor="middle">LiteLLM (gpt-5-mini …)</text>
+    <text class="sub" x="795" y="102" text-anchor="middle">OpenAI (GPT-5.6 Luna)</text>
   </g>
 
   <!-- arrows along request path -->
@@ -92,7 +92,7 @@
   <g>
     <rect class="box eval" x="730" y="220" width="150" height="56"/>
     <text class="lbl" x="805" y="244" text-anchor="middle">LLM-as-judge</text>
-    <text class="sub" x="805" y="262" text-anchor="middle">cross-family</text>
+    <text class="sub" x="805" y="262" text-anchor="middle">same-provider</text>
   </g>
 
   <!-- dotted taps -->

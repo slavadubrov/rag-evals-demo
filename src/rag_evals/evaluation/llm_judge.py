@@ -1,60 +1,81 @@
-"""LLM-as-judge with bias mitigation.
+"""Evidence-grounded pointwise SGR rubrics and mirrored pairwise comparisons.
 
-Two scorers:
-- ``g_eval``: pointwise rubric scoring (1-5).
-- ``pairwise``: A vs B preference. Order is randomised by default and the
-  ``measure_position_bias`` helper runs both orders to quantify the bias
-  the article warns about.
-
-Self-preference bias is observable by running the same pair through
-multiple judge models (different families) and reporting per-judge skew.
+These are not the probability-weighted G-Eval algorithm. ``g_eval`` remains a
+compatibility alias for the demo's old pointwise API.
 """
 
 from __future__ import annotations
 
+import json
 import random
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from rag_evals._mock_warning import is_mock, warn_mock_eval
+from rag_evals.evaluation.schemas import JUDGE_SYSTEM, Preference, Rating
 from rag_evals.generation.llm import LLM
 from rag_evals.generation.models import Model
 
-G_EVAL_PROMPT = """Score the answer below on the criterion '{criterion}', 1-5.
-Respond with a single integer.
 
-Question: {question}
-Answer: {answer}"""
+@dataclass
+class RatingResult:
+    score: int | None
+    status: str
+    explanation: str = ""
+    evidence_observation: str = ""
 
-PAIRWISE_PROMPT = """You will be shown two answers to the same question.
-Pick the better answer for the criterion '{criterion}'.
-Respond with exactly one token: A or B.
 
-Question: {question}
+def pointwise(
+    question: str,
+    answer: str,
+    *,
+    context: str = "",
+    reference: str = "",
+    criterion: str = "faithfulness",
+    llm: LLM | None = None,
+) -> RatingResult:
+    llm = llm or LLM()
+    if "faithfulness" in criterion.lower() and not context:
+        return RatingResult(None, "invalid", "Faithfulness requires retrieved context")
+    try:
+        result = llm.structured(
+            json.dumps(
+                {
+                    "task": "Score only the named criterion: 1 fails, 2 mostly fails, 3 mixed, 4 mostly meets, 5 fully meets.",
+                    "criterion": criterion,
+                    "question": question,
+                    "answer": answer,
+                    "context": context,
+                    "reference": reference,
+                }
+            ),
+            Rating,
+            system=JUDGE_SYSTEM,
+        )
+        return RatingResult(result.score, "ok", result.explanation, result.evidence_observation)
+    except Exception as exc:
+        return RatingResult(None, "invalid", type(exc).__name__)
 
-Answer A:
-{a}
 
-Answer B:
-{b}"""
+def g_eval(
+    question: str,
+    answer: str,
+    *,
+    criterion: str = "faithfulness",
+    llm: LLM | None = None,
+    context: str = "",
+    reference: str = "",
+) -> int | None:
+    """Compatibility alias; use pointwise() to retain invalid status and evidence."""
+    return pointwise(
+        question, answer, criterion=criterion, llm=llm, context=context, reference=reference
+    ).score
 
 
 @dataclass
 class PairwiseResult:
-    winner: str  # 'A' | 'B' | 'TIE'
+    winner: str | None
     raw: str
-
-
-def g_eval(
-    question: str, answer: str, *, criterion: str = "faithfulness", llm: LLM | None = None
-) -> int:
-    llm = llm or LLM()
-    if is_mock(llm):
-        warn_mock_eval("llm_judge.g_eval")
-    raw = llm.ask(G_EVAL_PROMPT.format(criterion=criterion, question=question, answer=answer))
-    m = re.search(r"[1-5]", raw)
-    return int(m.group(0)) if m else 3
+    status: str = "ok"
 
 
 def pairwise(
@@ -64,58 +85,77 @@ def pairwise(
     *,
     criterion: str = "faithfulness",
     llm: LLM | None = None,
+    context_a: str = "",
+    context_b: str = "",
 ) -> PairwiseResult:
     llm = llm or LLM()
-    if is_mock(llm):
-        warn_mock_eval("llm_judge.pairwise")
-    raw = llm.ask(PAIRWISE_PROMPT.format(criterion=criterion, question=question, a=a, b=b))
-    text = raw.strip().upper()
-    if text.startswith("A"):
-        return PairwiseResult(winner="A", raw=raw)
-    if text.startswith("B"):
-        return PairwiseResult(winner="B", raw=raw)
-    return PairwiseResult(winner="TIE", raw=raw)
+    if "faithfulness" in criterion.lower() and not (context_a and context_b):
+        return PairwiseResult(None, "Faithfulness requires evidence for both answers", "invalid")
+    try:
+        result = llm.structured(
+            json.dumps(
+                {
+                    "task": "Compare candidates on the criterion. TIE is allowed when quality is equal.",
+                    "criterion": criterion,
+                    "question": question,
+                    "A": {"answer": a, "context": context_a},
+                    "B": {"answer": b, "context": context_b},
+                }
+            ),
+            Preference,
+            system=JUDGE_SYSTEM,
+        )
+        return PairwiseResult(result.winner, result.model_dump_json())
+    except Exception as exc:
+        return PairwiseResult(None, type(exc).__name__, "invalid")
 
 
 @dataclass
 class BiasMeasurement:
-    a_first_winrate: float
-    b_first_winrate: float
-    position_bias: float  # signed: positive => first-shown advantage
+    a_first_winrate: float | None
+    b_first_winrate: float | None
+    position_bias: float | None
     n: int
+    swap_consistency: float | None = None
+    n_invalid: int = 0
+    n_ties: int = 0
 
 
 def measure_position_bias(
     pairs: Sequence[tuple[str, str, str]],
     *,
     llm: LLM | None = None,
-    criterion: str = "faithfulness",
+    criterion: str = "helpfulness",
+    context: str = "",
 ) -> BiasMeasurement:
-    """``pairs`` is [(question, a, b), ...]. We run each pair in both
-    orderings and measure how often the *first-shown* answer wins.
-    A pure quality judge with no position bias should show 50% in both.
-    """
+    """Map swapped labels to identity. Equal candidate win rates are not required."""
     llm = llm or LLM()
-    if is_mock(llm):
-        warn_mock_eval("llm_judge.measure_position_bias")
-    a_first = b_first = 0
-    n = 0
+    a_first = b_first = consistent = n = invalid = ties = 0
+    invert = {"A": "B", "B": "A", "TIE": "TIE"}
     for question, a, b in pairs:
-        r1 = pairwise(question, a, b, criterion=criterion, llm=llm)
-        r2 = pairwise(question, b, a, criterion=criterion, llm=llm)
-        if r1.winner != "TIE":
-            n += 1
-            a_first += int(r1.winner == "A")
-            b_first += int(r2.winner == "A")  # swapped: 'A' position is now b
-    if not n:
-        return BiasMeasurement(0.0, 0.0, 0.0, 0)
-    a_rate = a_first / n
-    b_rate = b_first / n
+        r1 = pairwise(
+            question, a, b, criterion=criterion, llm=llm, context_a=context, context_b=context
+        )
+        r2 = pairwise(
+            question, b, a, criterion=criterion, llm=llm, context_a=context, context_b=context
+        )
+        if r1.winner is None or r2.winner is None:
+            invalid += 1
+            continue
+        n += 1
+        consistent += r1.winner == invert[r2.winner]
+        ties += (r1.winner == "TIE") + (r2.winner == "TIE")
+        a_first += r1.winner == "A"
+        b_first += r2.winner == "A"
+    decisive = 2 * n - ties
     return BiasMeasurement(
-        a_first_winrate=a_rate,
-        b_first_winrate=b_rate,
-        position_bias=(a_rate + b_rate) / 2 - 0.5,
-        n=n,
+        a_first / n if n else None,
+        b_first / n if n else None,
+        (a_first + b_first) / decisive - 0.5 if decisive else None,
+        n,
+        consistent / n if n else None,
+        invalid,
+        ties,
     )
 
 
@@ -127,43 +167,28 @@ def averaged_pairwise(
     criterion: str = "faithfulness",
     llm: LLM | None = None,
     rng: random.Random | None = None,
+    context_a: str = "",
+    context_b: str = "",
 ) -> PairwiseResult:
-    """Mitigation from the article: run both orderings and aggregate."""
+    """Score both orders; invalid calls remain invalid, disagreement is a tie."""
     llm = llm or LLM()
-    if is_mock(llm):
-        warn_mock_eval("llm_judge.averaged_pairwise")
-    rng = rng or random.Random(0)
-    if rng.random() < 0.5:
-        first, second = a, b
-        flip = False
-    else:
-        first, second = b, a
-        flip = True
-    r1 = pairwise(question, first, second, criterion=criterion, llm=llm)
-    r2 = pairwise(question, second, first, criterion=criterion, llm=llm)
-    score = 0
-    for r, flipped in ((r1, flip), (r2, not flip)):
-        if r.winner == "A":
-            score += -1 if flipped else 1
-        elif r.winner == "B":
-            score += 1 if flipped else -1
-    if score > 0:
-        return PairwiseResult(winner="A", raw=f"{r1.raw}|{r2.raw}")
-    if score < 0:
-        return PairwiseResult(winner="B", raw=f"{r1.raw}|{r2.raw}")
-    return PairwiseResult(winner="TIE", raw=f"{r1.raw}|{r2.raw}")
+    r1 = pairwise(
+        question, a, b, criterion=criterion, llm=llm, context_a=context_a, context_b=context_b
+    )
+    r2 = pairwise(
+        question, b, a, criterion=criterion, llm=llm, context_a=context_b, context_b=context_a
+    )
+    raw = f"{r1.raw}|{r2.raw}"
+    if r1.winner is None or r2.winner is None:
+        return PairwiseResult(None, raw, "invalid")
+    score = {"A": 1, "B": -1, "TIE": 0}[r1.winner] - {"A": 1, "B": -1, "TIE": 0}[r2.winner]
+    return PairwiseResult("A" if score > 0 else "B" if score < 0 else "TIE", raw)
 
 
-def cross_family_judges(generator: Model) -> list[Model]:
-    """Pick judge models that aren't from the same family as ``generator``.
-
-    Used by notebook 07 to demonstrate the 'never use a model to judge itself'
-    rule.
-    """
-    if generator.value.startswith("gpt-"):
-        return [Model.CLAUDE_HAIKU_4_5, Model.GEMINI_2_5_FLASH]
-    if generator.value.startswith("claude-"):
-        return [Model.GPT_5_MINI, Model.GEMINI_2_5_FLASH]
-    if generator.value.startswith("gemini/"):
-        return [Model.GPT_5_MINI, Model.CLAUDE_HAIKU_4_5]
-    return [Model.GPT_5_MINI, Model.CLAUDE_HAIKU_4_5, Model.GEMINI_2_5_FLASH]
+def alternate_judges(generator: Model | str) -> list[Model]:
+    """Different OpenAI models, not independent provider families."""
+    return [
+        m
+        for m in (Model.GPT_5_6_LUNA, Model.GPT_5_6_TERRA, Model.GPT_6_ASTRA)
+        if m != str(generator).removeprefix("openai/")
+    ]

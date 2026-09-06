@@ -1,0 +1,19 @@
+name: Check
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      RAG_EVALS_BACKEND: mock
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+      - run: uv sync --frozen --extra dev
+      - run: make lint
+      - run: uv run python -m ruff format --check src tests
+      - run: make test
+      - run: uv run python -m rag_evals.evaluation.runner --suite offline --report report/offline.md

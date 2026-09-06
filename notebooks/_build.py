@@ -50,6 +50,9 @@ def notebook(cells: list[dict]) -> dict:
 
 
 def write(path: Path, cells: list[dict]) -> None:
+    source = "".join("".join(c["source"]) for c in cells)
+    if "store = QdrantStore()" in source:
+        cells.append(code("store.close()"))
     path.write_text(json.dumps(notebook(cells), indent=1))
     print(f"  wrote {path}")
 
@@ -275,8 +278,8 @@ nb03 = [
 
         before_m = evaluate_runs(before, gold, k=10)
         after_m  = evaluate_runs(after, gold, k=10)
-        print(f"before rerank: nDCG@10={before_m.ndcg_at_k:.3f} P@1={before_m.precision_at_k:.3f}")
-        print(f" after rerank: nDCG@10={after_m.ndcg_at_k:.3f} P@1={after_m.precision_at_k:.3f}")
+        print(f"before rerank: nDCG@10={before_m.ndcg_at_k:.3f} P@10={before_m.precision_at_k:.3f}")
+        print(f" after rerank: nDCG@10={after_m.ndcg_at_k:.3f} P@10={after_m.precision_at_k:.3f}")
         print(f"   ΔnDCG@10 = {after_m.ndcg_at_k - before_m.ndcg_at_k:+.3f}")
         """
     ),
@@ -398,7 +401,7 @@ nb05 = [
         print(f"faithfulness = {result.score:.2f}")
         """
     ),
-    md("Switch `use_heuristic=False` (with API keys) to use the LiteLLM-backed judge."),
+    md("Switch `use_heuristic=False` (with API keys) to use the OpenAI SGR judge."),
 ]
 
 # -----------------------------------------------------------------------------
@@ -445,19 +448,19 @@ nb07 = [
         """
         # 07 — LLM-as-judge
 
-        G-Eval, pairwise, position-bias measurement, and cross-family judging.
+        SGR pointwise scoring, mirrored pairwise comparison and same-provider limitations.
         """
     ),
     code(
         """
         from rag_evals.evaluation.llm_judge import (
-            cross_family_judges, g_eval, measure_position_bias, pairwise,
+            alternate_judges, g_eval, measure_position_bias, pairwise,
         )
         from rag_evals.generation.models import Model
 
-        # Cross-family judges for each generator
-        for gen in (Model.GPT_5_MINI, Model.CLAUDE_HAIKU_4_5, Model.GEMINI_2_5_FLASH):
-            judges = cross_family_judges(gen)
+        # Alternative OpenAI judges for each generator
+        for gen in (Model.GPT_5_6_LUNA, Model.GPT_5_6_TERRA, Model.GPT_6_ASTRA):
+            judges = alternate_judges(gen)
             print(f"generator={gen.value:<25}  judges={[j.value for j in judges]}")
         """
     ),
@@ -477,15 +480,13 @@ nb07 = [
             ),
         ]
         bias = measure_position_bias(pairs)
-        print(f"a_first_winrate={bias.a_first_winrate:.2f}")
-        print(f"b_first_winrate={bias.b_first_winrate:.2f}")
-        print(f"position_bias  ={bias.position_bias:+.2f}  (0 = unbiased)")
+        print(bias)
         """
     ),
     md(
         """
         With API keys set, swap the default model in `LLM(...)` to a real model and watch
-        the bias measurement change as you change the judge family.
+        the bias measurement change as you change the judge model.
         """
     ),
 ]
@@ -660,7 +661,7 @@ nb09 = [
             plt.show()
         """
     ),
-    md("## Pairwise judging (cross-family judge)"),
+    md("## Pairwise judging (same-provider judge)"),
     code(
         """
         df_pw = pd.DataFrame(bench.get("pairwise", []))

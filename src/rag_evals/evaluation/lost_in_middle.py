@@ -33,6 +33,8 @@ class PositionEvalResult:
 def _arrange(
     gold: RetrievalHit, distractors: Sequence[RetrievalHit], position: str
 ) -> list[RetrievalHit]:
+    if position not in {"first", "middle", "last"}:
+        raise ValueError("Unknown context position")
     n = len(distractors)
     if position == "first":
         return [gold, *distractors]

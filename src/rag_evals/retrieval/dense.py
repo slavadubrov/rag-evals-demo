@@ -18,5 +18,5 @@ class DenseRetriever:
     def __call__(
         self, query: str, *, limit: int = 10, predicates: dict[str, object] | None = None
     ) -> list[RetrievalHit]:
-        vec = list(next(iter(self.model.embed([query]))))
+        vec = list(next(iter(self.model.query_embed(query))))
         return self.store.search_dense(vec, limit=limit, predicates=predicates)
