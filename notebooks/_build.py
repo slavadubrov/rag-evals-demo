@@ -236,8 +236,8 @@ nb02 = [
     ),
     md(
         """
-        On the article's claim: "hybrid Recall@10 ≥ max(dense, sparse)" — true on most corpora;
-        verify on yours before trusting it.
+        Compare hybrid Recall@10 with each lane alone. A poor fusion setting can score below
+        either lane.
         """
     ),
 ]
@@ -293,9 +293,9 @@ nb04 = [
         """
         # 04 — Filter false-exclusion rate
 
-        The article's signature metric. A hard metadata filter can drop effective recall to zero
-        without changing the standard retrieval metrics. The gold doc is excluded *before* ranking
-        starts, so Recall@k computed over survivors looks fine.
+        A hard metadata filter can remove the gold document before ranking. Recall@k against the
+        original gold set shows the drop. An evaluator that rebuilds the gold set from the filtered
+        documents hides it. The false-exclusion rate shows which filter removed the document.
         """
     ),
     code(

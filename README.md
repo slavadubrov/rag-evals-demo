@@ -1,6 +1,6 @@
 # rag-evals
 
-A small, inspectable RAG evaluation demo. It separates **retrieval quality on SciFact**, **generation quality on labeled synthetic QA**, and **offline contract checks**. The scores describe these datasets, not production readiness.
+Companion code for [RAG Evaluation Metrics: Retrieval, Reranking, Generation](https://slavadubrov.github.io/blog/2026/05/10/rag-evaluation-metrics/). A small, inspectable RAG evaluation demo. It separates **retrieval quality on SciFact**, **generation quality on labeled synthetic QA**, and **offline contract checks**. The scores describe these datasets, not production readiness.
 
 Python 3.12+, [uv](https://docs.astral.sh/uv/), embedded Qdrant, native OpenAI SDK. No service or Docker is required.
 
@@ -111,11 +111,11 @@ make lint
 uv run python -m ruff format --check src tests
 ```
 
-Notebooks are optional walkthroughs; CLI and tests define the executable contracts. CI runs lint, typing, tests and offline replay without API credentials. Python follows Ruff formatting/import/PEP checks and mypy; no claim of compliance with every PEP is meaningful.
+Notebooks are optional walkthroughs; CLI and tests define the executable contracts. CI runs lint, typing, tests and offline replay without API credentials. Code style is checked with Ruff and mypy.
 
 ## Sources
 
 - [OpenAI Luna model](https://developers.openai.com/api/docs/models/gpt-5.6-luna) and [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
 - [Ragas metric taxonomy](https://docs.ragas.io/en/stable/concepts/metrics/available_metrics/): this demo has small explicit evaluators, not a Ragas dependency or a claim of algorithmic equivalence.
 
-MIT. Companion demo for *Evaluating RAG*.
+MIT. Companion code for [RAG Evaluation Metrics: Retrieval, Reranking, Generation](https://slavadubrov.github.io/blog/2026/05/10/rag-evaluation-metrics/).
