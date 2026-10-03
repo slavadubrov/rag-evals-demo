@@ -33,7 +33,7 @@ eval-fast:  ## 50-query smoke subset for CI
 	$(call banner,Eval smoke)
 	$(UV) run python -m rag_evals.evaluation.runner --suite all --limit 50 --report report.md
 
-benchmark:  ## Sweep chunking × embedding × LLM, write report/benchmark.{md,json}
+benchmark:  ## Sweep chunking × embedding (no API calls), write report/benchmark.{md,json}
 	$(call banner,Benchmark sweep)
 	$(UV) run python -m rag_evals.scripts.benchmark
 
